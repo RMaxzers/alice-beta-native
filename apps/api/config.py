@@ -47,7 +47,7 @@ class Settings(BaseSettings):
 
     hermes_enabled: bool = False
     hermes_api_url: str = "http://127.0.0.1:8642"
-    docker_enabled: bool = True
+    docker_enabled: bool = False
     docker_allowed_containers: str = "alice-qdrant,alice-prometheus,alice-grafana"
     email_enabled: bool = False
     notebooklm_enabled: bool = False
