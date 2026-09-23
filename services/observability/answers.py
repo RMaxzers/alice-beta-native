@@ -64,6 +64,8 @@ class ObservabilityAnswerer:
             return await self.gpu_history(q)
         if re.search(r"gpu|vram", q):
             return await self.gpu_now()
+        if re.search(r"componente|proceso", q) and re.search(r"\bram\b|memoria", q):
+            return await self.components_mem()
         if re.search(r"\bcpu\b|\bram\b|memoria", q):
             return await self.host_now()
         return await self.health()
@@ -96,6 +98,24 @@ class ObservabilityAnswerer:
                 f"- RAM usada: {_fmt_bytes(v(used))} de {_fmt_bytes(v(total))}; disponible {_fmt_bytes(v(avail))}"
                 if age is not None else "Prometheus no tiene muestras recientes de windows_exporter (sin datos, no cero).")
         return text, {"cpu": cpu, "mem_used": used, "mem_total": total}, [Source(kind="metric", title="windows_exporter vía Prometheus", location="instantáneo", privacy=Privacy.INTERNAL)]
+
+    async def components_mem(self):
+        try:
+            r = await self.s.prom.instant("alice_component_mem_bytes")
+        except PromError as e:
+            return f"No puedo obtener la memoria por componente: {e}. No muestro valores estimados.", {}, []
+        rows = sorted(((x["labels"].get("component", "?"), x["value"]) for x in r["values"]), key=lambda t: -t[1])
+        if not rows:
+            return ("Prometheus no tiene muestras de memoria por proceso de Alice (sin datos, no cero). "
+                    "Se generan al ejecutar `Status-Alice.ps1`."), {}, []
+        age = max(x["age_s"] for x in r["values"])
+        top, mb = rows[0], lambda b: f"{b / 1024 ** 2:,.0f} MB".replace(",", ".")
+        text = (f"**{top[0]}** es el componente que más RAM usa ahora: {mb(top[1])} (memoria privada, "
+                f"Prometheus ← windows_exporter, muestra de hace {age:.0f} s).\n\n" +
+                "\n".join(f"- {c}: {mb(b)}" for c, b in rows) +
+                "\n\nIncluye los procesos hijos (en Ollama, los runners de cada modelo cargado). La VRAM de la GPU va aparte.")
+        return text, {"components": dict(rows)}, [Source(kind="metric", title="windows_exporter + manifiestos de Alice vía Prometheus",
+                                                          location="instantáneo", privacy=Privacy.INTERNAL)]
 
     async def gpu_now(self):
         from services.observability.samplers import sample_gpu

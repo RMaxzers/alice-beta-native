@@ -32,9 +32,11 @@ function Test-Http([string]$Url, [int]$TimeoutSec = 3) {
 
 # --- Process manifest (storageun\<name>.json): pid + start time + executable + logs.
 # A PID is only "ours" if all three still match; a reused PID never gets stopped by mistake.
-function Save-Manifest([string]$Name, $Proc) {
+# $Exe: pass the path that was launched. Right after Start-Process, $Proc.Path can still read as empty;
+# a manifest saved with an empty exe never matches again, gets dropped, and orphans the running process.
+function Save-Manifest([string]$Name, $Proc, [string]$Exe = $Proc.Path) {
   [ordered]@{
-    name = $Name; pid = $Proc.Id; exe = $Proc.Path
+    name = $Name; pid = $Proc.Id; exe = [IO.Path]::GetFullPath($Exe)
     start_utc_ticks = $Proc.StartTime.ToUniversalTime().Ticks; start = $Proc.StartTime.ToString('o')
     stdout = (Join-Path $LogDir "$Name.out.log"); stderr = (Join-Path $LogDir "$Name.err.log")
   } | ConvertTo-Json | Set-Content (Join-Path $RunDir "$Name.json") -Encoding utf8
@@ -51,7 +53,9 @@ function Get-OwnPid([string]$Name) {
   if (-not (Test-Path $f)) { return $null }
   $m = Get-Content $f -Raw | ConvertFrom-Json
   $p = Get-Process -Id $m.pid -ErrorAction SilentlyContinue
-  if ($p -and $p.Path -eq $m.exe -and [math]::Abs($p.StartTime.ToUniversalTime().Ticks - [long]$m.start_utc_ticks) -lt 10000000) { return $p.Id }
+  # Path can read as empty (access/timing); then the start time alone identifies it. A different exe or
+  # start time means the PID was reused by another program, and only then is the manifest dropped.
+  if ($p -and (-not $p.Path -or -not $m.exe -or $p.Path -eq $m.exe) -and [math]::Abs($p.StartTime.ToUniversalTime().Ticks - [long]$m.start_utc_ticks) -lt 10000000) { return $p.Id }
   Remove-Item $f -Force; $null
 }
 
@@ -61,7 +65,7 @@ function Start-Owned([string]$Name, [string]$Exe, [string[]]$ArgList, [hashtable
   $p = Start-Process -FilePath $Exe -ArgumentList $ArgList -WorkingDirectory $WorkDir -WindowStyle Hidden -PassThru `
         -RedirectStandardOutput (Join-Path $LogDir "$Name.out.log") -RedirectStandardError (Join-Path $LogDir "$Name.err.log")
   foreach ($k in $Env.Keys) { Remove-Item "env:$k" -ErrorAction SilentlyContinue }
-  Save-Manifest $Name (Get-Process -Id $p.Id)
+  Save-Manifest $Name (Get-Process -Id $p.Id) $Exe
 }
 
 # Kill an owned process and its children (the venv python.exe is a launcher whose child runs the API).

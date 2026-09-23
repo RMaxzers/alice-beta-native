@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import hmac
 import json
+import mimetypes
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -23,6 +24,8 @@ from services.policies.egress import EgressDenied
 from services.rag.facts import FactIn, add_fact, facts_for
 
 WEB_DIST = ROOT / "apps" / "web" / "dist"
+# Windows' registry often lacks this type, so FileResponse would send the bundled fonts as text/plain.
+mimetypes.add_type("font/woff2", ".woff2")
 
 
 @asynccontextmanager
@@ -358,6 +361,9 @@ async def spa(path: str):
     if WEB_DIST.exists():
         f = (WEB_DIST / path).resolve()
         if path and f.is_file() and WEB_DIST.resolve() in f.parents:
-            return FileResponse(f)
-        return FileResponse(WEB_DIST / "index.html")
+            # Vite puts a content hash in every file under assets/, so those never go stale.
+            immutable = path.startswith("assets/")
+            return FileResponse(f, headers={"Cache-Control": "public, max-age=31536000, immutable" if immutable else "no-cache"})
+        # index.html names the current hashed bundles: always revalidate, or a rebuild stays invisible.
+        return FileResponse(WEB_DIST / "index.html", headers={"Cache-Control": "no-cache"})
     return JSONResponse({"detail": "UI no compilada: ejecuta Setup-Alice.ps1"}, status_code=503)

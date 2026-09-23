@@ -1,11 +1,13 @@
 import { StrictMode, useCallback, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { api, errMsg, setCsrf, setOnUnauthorized } from "./api";
+import { api, setCsrf, setOnUnauthorized } from "./api";
 import { Logo, LogoState, STATE_LABEL } from "./Logo";
 import { Chat } from "./Chat";
 import { Knowledge } from "./Knowledge";
 import { Observability } from "./Observability";
 import { Models, SettingsPage, SystemPage } from "./pages";
+import { Landing } from "./landing/Landing";
+import { LiveMap } from "./landing/LiveMap";
 import "./theme.css";
 import "./styles.css";
 
@@ -29,31 +31,6 @@ const Icon = ({ k }: { k: string }) => (
 );
 type Tab = (typeof TABS)[number][0];
 
-function Login({ onDone }: { onDone: (u: string) => void }) {
-  const [username, setU] = useState("");
-  const [password, setP] = useState("");
-  const [err, setErr] = useState("");
-  const [busy, setBusy] = useState(false);
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
-    setBusy(true); setErr("");
-    try {
-      const r = await api<{ user: string; csrf: string }>("/api/login", "POST", { username, password });
-      setCsrf(r.csrf); setP(""); onDone(r.user);
-    } catch (e) { setErr(errMsg(e)); } finally { setBusy(false); }
-  }
-  return (
-    <main className="login">
-      <form onSubmit={submit} className="card">
-        <div className="brand big"><Logo size={72} /><h1>Alice</h1></div>
-        <label>Usuario<input autoComplete="username" value={username} onChange={(e) => setU(e.target.value)} required /></label>
-        <label>Contraseña<input type="password" autoComplete="current-password" value={password} onChange={(e) => setP(e.target.value)} required /></label>
-        {err && <p className="error" role="alert">{err}</p>}
-        <button className="primary" disabled={busy}>{busy ? "Entrando…" : "Entrar"}</button>
-      </form>
-    </main>
-  );
-}
 
 function App() {
   const [user, setUser] = useState<string | null | undefined>(undefined); // undefined = checking
@@ -80,7 +57,7 @@ function App() {
   }, []);
 
   if (user === undefined) return <main className="login"><Logo size={72} state="routing" /></main>;
-  if (user === null) return <Login onDone={setUser} />;
+  if (user === null) return <Landing onDone={setUser} />;
 
   return (
     <div className="shell">
@@ -107,7 +84,7 @@ function App() {
         ))}
       </nav>
       <main className="content" id="main" tabIndex={-1}>
-        {tab === "home" && <div className="home-slot" />}
+        {tab === "home" && <div className="page"><LiveMap /></div>}
         {/* Chat stays mounted so a conversation or stream survives tab switches. */}
         <div hidden={tab !== "chat"} className="fill"><Chat setLogo={setLogo} /></div>
         {tab === "knowledge" && <Knowledge />}

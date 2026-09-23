@@ -1,5 +1,15 @@
 # Cambios
 
+## 2026-09-23 · Rediseño y portada
+
+- Tema «Nocturne»: fuentes Geist, Space Grotesk y Geist Mono incluidas en la app (sin CDN), superficies en capas, barra lateral con íconos y barra superior con el estado «Solo local».
+- Portada animada con anime.js y mapa del mundo (d3-geo + world-atlas incluidos): arquitectura real con ubicaciones aproximadas.
+- Pestaña «Inicio» con mapa en vivo: cada consulta real se anima según el proveedor que la atendió; contadores del día y últimas consultas.
+- Observabilidad responde qué componente de Alice usa más RAM (memoria privada por proceso).
+- Corregido: un p95 sin consultas (NaN) causaba HTTP 500; ahora es «sin datos».
+- Corregido: `index.html` se quedaba en caché y ocultaba las versiones nuevas; ahora se revalida siempre y los assets con hash son inmutables.
+- Corregido: los scripts podían perder el manifiesto de la API justo después de arrancarla y dejarla huérfana.
+- Las fuentes `.woff2` se sirven como `font/woff2`.
 ## 0.1.0-beta.1 (sin publicar)
 
 ### Infraestructura y observabilidad

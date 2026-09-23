@@ -181,6 +181,17 @@ def test_security_headers(api):
     assert r.headers["x-frame-options"] == "DENY" and r.headers["cache-control"] == "no-store"
 
 
+def test_spa_cache_headers(api, tmp_path, monkeypatch):
+    import apps.api.main as M
+    (tmp_path / "assets").mkdir()
+    (tmp_path / "index.html").write_text("<html></html>")
+    (tmp_path / "assets" / "index-abc123.js").write_text("x")
+    monkeypatch.setattr(M, "WEB_DIST", tmp_path)
+    assert api.c.get("/").headers["cache-control"] == "no-cache"          # new builds show up immediately
+    assert api.c.get("/#home").headers["cache-control"] == "no-cache"
+    assert "immutable" in api.c.get("/assets/index-abc123.js").headers["cache-control"]
+
+
 # ----------------------------------------------------------------------------- Tailscale Serve / proxied requests
 PROXY_HEADERS = [{"x-forwarded-for": "100.101.102.103"}, {"tailscale-user-login": "someone@example.com"}]
 

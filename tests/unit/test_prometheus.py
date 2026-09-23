@@ -36,6 +36,39 @@ async def test_no_data_is_not_zero(net):
     assert r["no_data"] is True and r["values"] == []
 
 
+async def test_nan_is_no_data_not_a_500(net):
+    """histogram_quantile over a window without requests returns NaN; JSON can't carry it and it isn't 0."""
+    now = time.time()
+
+    def h(req):
+        if req.url.path.endswith("query_range"):
+            return httpx.Response(200, json={"status": "success", "data": {"result": [
+                {"metric": {}, "values": [[now - 60, "NaN"], [now - 30, "1.5"], [now, "+Inf"]]},
+                {"metric": {"x": "all-nan"}, "values": [[now - 60, "NaN"]]}]}})
+        return httpx.Response(200, json={"status": "success", "data": {"result": [{"metric": {}, "value": [now, "NaN"]}]}})
+    serve(net, h)
+    p = PrometheusAdapter(URL)
+    r = await p.instant("alice_p95_latency_s")
+    assert r["no_data"] is True and r["values"] == []
+    rr = await p.range("alice_p95_latency_s", now - 120, now)
+    assert len(rr["series"]) == 1 and [v for _, v in rr["series"][0].points] == [1.5]
+
+
+async def test_component_memory_answer(net):
+    from services.observability.answers import ObservabilityAnswerer
+    now = time.time()
+    result = [{"metric": {"component": "qdrant"}, "value": [now, str(35 * 2**20)]},
+              {"metric": {"component": "ollama"}, "value": [now, str(1650 * 2**20)]},
+              {"metric": {"component": "alice-api"}, "value": [now, str(55 * 2**20)]}]
+    serve(net, lambda req: httpx.Response(200, json={"status": "success", "data": {"result": result}}))
+    a = ObservabilityAnswerer(type("S", (), {"prom": PrometheusAdapter(URL)})())
+    text, data, _ = await a.answer("¿Qué componente de Alice usa más memoria ahora?", "admin")
+    assert text.startswith("**ollama**") and "1.650 MB" in text and list(data["components"]) == ["ollama", "alice-api", "qdrant"]
+    result.clear()
+    text, _, _ = await a.answer("¿Qué componente de Alice usa más memoria ahora?", "admin")
+    assert "sin datos, no cero" in text
+
+
 @pytest.mark.parametrize("resp", [
     httpx.Response(200, json={"status": "error", "errorType": "bad_data", "error": "parse error"}),
     httpx.Response(502, text="<html>Bad Gateway</html>"),

@@ -1,6 +1,7 @@
 """Read-only Prometheus adapter with a reviewed PromQL catalog. The LLM never writes PromQL."""
 from __future__ import annotations
 
+import math
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -17,6 +18,10 @@ CATALOG: dict[str, tuple[str, str, str]] = {
     "host_mem_used_bytes": ("windows_memory_physical_total_bytes - windows_memory_available_bytes", "bytes", "RAM usada del host Windows"),
     "host_mem_total_bytes": ("windows_memory_physical_total_bytes", "bytes", "RAM total del host"),
     "host_mem_available_bytes": ("windows_memory_available_bytes", "bytes", "RAM disponible del host"),
+    # Private working set per Alice component (process tree from the storage/run manifests, see D13).
+    "alice_component_mem_bytes": ("sum by (component) (windows_process_working_set_private_bytes"
+                                  " * on(process_id) group_left(component) alice_native_process)", "bytes",
+                                  "RAM privada por componente de Alice"),
     "host_disk_free_bytes": ('windows_logical_disk_free_bytes{volume="C:"}', "bytes", "Espacio libre en C:"),
     "host_net_bytes_per_s": ("sum(rate(windows_net_bytes_total[1m]))", "bytes/s", "Tráfico de red total"),
     "host_uptime_s": ("time() - windows_system_boot_time_timestamp", "s", "Uptime del host"),
@@ -74,8 +79,9 @@ class PrometheusAdapter:
         data = await self._get("/api/v1/query", {"query": promql})
         res = data["result"][:MAX_SERIES]
         now = time.time()
+        # NaN/Inf (e.g. histogram_quantile over a window with no requests) means "no data", never 0.
         values = [{"labels": r["metric"], "value": float(r["value"][1]), "sample_ts": r["value"][0],
-                   "age_s": round(now - r["value"][0], 1)} for r in res]
+                   "age_s": round(now - r["value"][0], 1)} for r in res if math.isfinite(float(r["value"][1]))]
         return {"metric": name, "description": desc, "unit": unit, "query": promql, "values": values,
                 "no_data": not values, "source": "prometheus", "at": datetime.now(timezone.utc).isoformat()}
 
@@ -90,8 +96,9 @@ class PrometheusAdapter:
         data = await self._get("/api/v1/query_range", {"query": promql, "start": start, "end": end, "step": step})
         series = []
         for r in data["result"][:MAX_SERIES]:
-            pts = [(float(t), float(v)) for t, v in r["values"]]
-            series.append(Series(r["metric"], pts))
+            pts = [(float(t), float(v)) for t, v in r["values"] if math.isfinite(float(v))]  # NaN -> gap
+            if pts:
+                series.append(Series(r["metric"], pts))
         return {"metric": name, "description": desc, "unit": unit, "start": start, "end": end, "step": step,
                 "series": series, "no_data": not series, "coverage": _coverage(series, start, end, step)}
 
