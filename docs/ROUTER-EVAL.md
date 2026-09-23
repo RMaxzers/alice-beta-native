@@ -1,9 +1,9 @@
 # Router evaluation
 
-Date: 2026-09-22 14:46 · cases: 52 · embeddings: bge-m3 · classifier: qwen3:4b-instruct-2507-q4_K_M
+Date: 2026-09-23 00:13 · cases: 52 · embeddings: bge-m3 · classifier: qwen3:4b-instruct-2507-q4_K_M
 
 **Accuracy: 52/52 = 100.0%** · malformed classifier outputs: 0
-Latency: p50 0 ms · p95 1118 ms · max 1139 ms (includes embedding/classifier calls)
+Latency: p50 0 ms · p95 2018 ms · max 7793 ms (includes embedding/classifier calls)
 Decided by: {'classifier': 8, 'rules': 44}
 By set: eval-1 40/40, holdout2 12/12 (holdout2 was written after eval-1 rule changes and never used for tuning)
 
@@ -22,11 +22,11 @@ By set: eval-1 40/40, holdout2 12/12 (holdout2 was written after eval-1 rule cha
 
 | Query | Expected | Got | By | Conf. | ms | OK |
 |---|---|---|---|---|---|---|
-| Explícame qué es una VLAN. | LOCAL_SIMPLE | LOCAL_SIMPLE | classifier | 0.99 | 1110 | ✅ |
-| Explícame DHCP en pocas palabras | LOCAL_SIMPLE | LOCAL_SIMPLE | classifier | 0.99 | 986 | ✅ |
-| ¿Qué diferencia hay entre RAID 1 y RAID 5? | LOCAL_SIMPLE | LOCAL_SIMPLE | classifier | 0.99 | 1125 | ✅ |
-| Dame tres consejos para dormir mejor | LOCAL_SIMPLE | LOCAL_SIMPLE | classifier | 0.95 | 1131 | ✅ |
-| What is a subnet mask? | LOCAL_SIMPLE | LOCAL_SIMPLE | classifier | 0.99 | 1139 | ✅ |
+| Explícame qué es una VLAN. | LOCAL_SIMPLE | LOCAL_SIMPLE | classifier | 0.99 | 7793 | ✅ |
+| Explícame DHCP en pocas palabras | LOCAL_SIMPLE | LOCAL_SIMPLE | classifier | 0.99 | 1758 | ✅ |
+| ¿Qué diferencia hay entre RAID 1 y RAID 5? | LOCAL_SIMPLE | LOCAL_SIMPLE | classifier | 0.99 | 2018 | ✅ |
+| Dame tres consejos para dormir mejor | LOCAL_SIMPLE | LOCAL_SIMPLE | classifier | 0.95 | 2007 | ✅ |
+| What is a subnet mask? | LOCAL_SIMPLE | LOCAL_SIMPLE | classifier | 0.99 | 2095 | ✅ |
 | Escribe un PowerShell que muestre los cinco procesos que más | LOCAL_CODE | LOCAL_CODE | rules |  | 0 | ✅ |
 | Genera una función que valide estas direcciones IP | LOCAL_CODE | LOCAL_CODE | rules |  | 0 | ✅ |
 | Corrige este código Python: for i in range(10) print(i) | LOCAL_CODE | LOCAL_CODE | rules |  | 0 | ✅ |
@@ -61,16 +61,16 @@ By set: eval-1 40/40, holdout2 12/12 (holdout2 was written after eval-1 rule cha
 | Automatiza un resumen diario de mis logs | AUTOMATION | AUTOMATION | rules |  | 0 | ✅ |
 | Usa el modelo más potente para diseñar una estrategia de mig | CLOUD_POWERFUL | CLOUD_POWERFUL | rules |  | 0 | ✅ |
 | Hazme un análisis profundo de pros y contras de microservici | CLOUD_POWERFUL | CLOUD_POWERFUL | rules |  | 0 | ✅ |
-| ¿Por qué el cielo es azul? | LOCAL_SIMPLE | LOCAL_SIMPLE | classifier | 0.99 | 1118 | ✅ |
+| ¿Por qué el cielo es azul? | LOCAL_SIMPLE | LOCAL_SIMPLE | classifier | 0.99 | 2050 | ✅ |
 | Crea un script de Python que mida el uso de RAM de un proces | LOCAL_CODE | LOCAL_CODE | rules |  | 0 | ✅ |
 | Investiga qué cambió en Prometheus 3 | WEB_RESEARCH | WEB_RESEARCH | rules |  | 0 | ✅ |
 | ¿Cuánta memoria está usando el contenedor de Grafana? | OBSERVABILITY | OBSERVABILITY | rules |  | 0 | ✅ |
-| ¿Qué es un hipervisor? | LOCAL_SIMPLE | LOCAL_SIMPLE | classifier | 0.95 | 1093 | ✅ |
+| ¿Qué es un hipervisor? | LOCAL_SIMPLE | LOCAL_SIMPLE | classifier | 0.95 | 1936 | ✅ |
 | ¿Cuántos equipos del inventario tienen Windows 10? | STRUCTURED_QUERY | STRUCTURED_QUERY | rules |  | 0 | ✅ |
 | ¿A qué hora ocurrió el primer error en el log? | LOG_ANALYSIS | LOG_ANALYSIS | rules |  | 0 | ✅ |
 | ¿Cuál es el precio de la acción de Apple? | FINANCIAL_RESEARCH | FINANCIAL_RESEARCH | rules |  | 0 | ✅ |
 | Según mis documentos, ¿quién aprobó el cambio? | LOCAL_RAG | LOCAL_RAG | rules |  | 0 | ✅ |
-| Explica la diferencia entre proceso e hilo | LOCAL_SIMPLE | LOCAL_SIMPLE | classifier | 0.99 | 801 | ✅ |
+| Explica la diferencia entre proceso e hilo | LOCAL_SIMPLE | LOCAL_SIMPLE | classifier | 0.99 | 1259 | ✅ |
 | ¿Está funcionando Prometheus? | OBSERVABILITY | OBSERVABILITY | rules |  | 0 | ✅ |
 | Últimas noticias sobre la regulación de IA en Chile | WEB_RESEARCH | WEB_RESEARCH | rules |  | 0 | ✅ |
 | Escribe una consulta SQL que agrupe ventas por mes | LOCAL_CODE | LOCAL_CODE | rules |  | 0 | ✅ |

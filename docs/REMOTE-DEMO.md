@@ -1,6 +1,6 @@
 # Demo remota por Tailscale (PENDIENTE)
 
-Estado al 2026-09-22: **nada de esto está aplicado ni probado desde el laptop.** Los comandos usan la sintaxis de Tailscale 1.102.2 instalada (`tailscale serve --help`). Solo Serve dentro de la tailnet; nunca Funnel ni port forwarding.
+Estado al 2026-09-23: **`:8443 -> 127.0.0.1:8000` aplicado y probado desde el propio PC por la URL de la tailnet; `:8444` (Grafana) no aplicado; nada probado todavía desde el laptop.** Los comandos usan la sintaxis de Tailscale 1.102.2 instalada (`tailscale serve --help`). Solo Serve dentro de la tailnet; nunca Funnel ni port forwarding.
 
 ## Estado actual (solo lectura)
 

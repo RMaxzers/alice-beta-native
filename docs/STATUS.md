@@ -1,6 +1,8 @@
 # Estado de Alice Beta 0.1
 
-Actualizado: 2026-09-22 23:50 (agente de infraestructura). Solo hechos comprobados; lo no probado figura como pendiente.
+Actualizado: 2026-09-23 00:20 (coordinador). Solo hechos comprobados; lo no probado figura como pendiente. Detalle en `TEST-REPORT.md`.
+
+Repositorio: `https://github.com/RMaxzers/alice-beta-native` (privado), tag `v0.1.0-beta.1`. `RMaxzers/alice` y `RMaxzers/alice-beta` son otros proyectos/versiones y no se tocaron.
 
 ## Funciona (verificado)
 
@@ -12,12 +14,17 @@ Actualizado: 2026-09-22 23:50 (agente de infraestructura). Solo hechos comprobad
 - Dataset sintético de demostración cargado (4 documentos `ready` + 1 hecho verificado); consulta local de humo por LOCAL_SIMPLE en 12,1 s.
 - `Test-Alice.ps1 -SkipRouterEval` (2026-09-22 23:51): pytest 259 passed, Status, Dashboard y checksums de la demo en PASS; informe en `work\test-20260922-235120\REPORT.md`.
 
+- Tailscale Serve `https=8443 -> 127.0.0.1:8000` aplicado (la regla `/ -> :8080` de Open WebUI sigue intacta) y probado desde este PC por la URL de la tailnet: UI, login con cookie Secure y chat OK; rutas internas en 404.
+- Backup en modo por defecto (detiene y reanuda la API): OK, 2026-09-22 23:56.
+- Router: 52/52 (2026-09-23 00:13). Suite: 266 passed.
+- Recorrido de demo en vivo pasos 2-9, 11 y 12 (ver `TEST-REPORT.md`).
+
 ## Pendiente
 
-- Tailscale Serve `https=8443 -> 127.0.0.1:8000` y acceso Viewer de Grafana (comandos en REMOTE-DEMO); prueba desde el laptop en otra red; ACL/grants.
-- Llamada real a OpenRouter y Tavily (Status: `CONFIGURED_NOT_TESTED`).
-- Backup en modo por defecto (offline, detiene y reanuda la API).
-- Evaluación del router dentro de `Test-Alice.ps1` (se omitió con `-SkipRouterEval` porque reescribe `docs/ROUTER-EVAL.md`).
+- Prueba desde el laptop en otra red; ACL/grants de la tailnet; acceso Viewer de Grafana por `:8444` (no aplicado).
+- Llamada real a OpenRouter y Tavily (Status: `CONFIGURED_NOT_TESTED`). La llamada de pago la ejecuta el usuario.
+- UI con sesión iniciada en un navegador real.
+- Sesión sostenida de 30 min y p50/p95 con muestras suficientes.
 - Arranque tras reinicio del PC no probado.
 - Modo Qdrant embebido (no implementado; el activo es servidor nativo).
 
@@ -27,9 +34,9 @@ Actualizado: 2026-09-22 23:50 (agente de infraestructura). Solo hechos comprobad
 
 ## Riesgos abiertos
 
-- Ollama escucha en `[::]:11434` (todas las interfaces). Corrección: `OLLAMA_HOST=127.0.0.1:11434` a nivel de usuario y reiniciar la app de Ollama (SECURITY). No aplicada.
+- Ollama escucha en `[::]:11434` y responde por la IP de la tailnet (que incluye un dispositivo de otro usuario) y por la LAN. `OLLAMA_HOST=127.0.0.1:11434` ya está a nivel de usuario, pero la app de Ollama tiene activado «Expose Ollama to the network» y lo anula. Corrección: desactivar esa opción en Settings de Ollama (decisión del usuario).
 - 6 reinicios Kernel-Power 41 en 14 días; RAM libre entre 1,4 y 3,1 GB con el stack y dos modelos cargados.
 
 ## Siguiente acción concreta
 
-El coordinador, con consentimiento del usuario: aplicar la corrección de `OLLAMA_HOST`, ejecutar `tailscale serve --bg --https=8443 http://127.0.0.1:8000` y seguir la sección 5 de REMOTE-DEMO desde el laptop.
+Usuario: desactivar «Expose Ollama to the network»; iniciar sesión en la UI y recorrer las seis pestañas; seguir la sección 5 de REMOTE-DEMO desde el laptop en otra red; ejecutar la llamada real a OpenRouter.
