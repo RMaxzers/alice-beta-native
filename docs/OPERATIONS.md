@@ -2,6 +2,8 @@
 
 Todos los scripts están en `scripts\windows\`, se ejecutan con PowerShell 7 desde cualquier directorio, son idempotentes y aceptan rutas con espacios. No piden privilegios de administrador.
 
+Windows PowerShell 5.1 (`powershell.exe`) los bloquea con la política de ejecución por defecto. Usa `pwsh` (PowerShell 7), o para una sola ejecución `powershell -ExecutionPolicy Bypass -File .\scripts\windows\Start-Alice.ps1`. No hace falta cambiar la política global del equipo.
+
 | Script | Qué hace | Salida |
 |---|---|---|
 | `Setup-Alice.ps1` | Descarga binarios fijados y verifica SHA256, crea `.env` con secretos aleatorios (sin imprimirlos), `uv sync`, modelos de Ollama, migraciones, build de la UI | 0 / excepción |
