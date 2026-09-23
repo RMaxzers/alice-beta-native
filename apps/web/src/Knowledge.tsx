@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { api, errMsg, fmtBytes, fmtTime, getCsrf, unauthorized } from "./api";
 import { PrivBadge, type Privacy } from "./Chat";
+import { PageHead } from "./pages";
 
 type Doc = {
   document_id: string; original_name: string; size_bytes: number; kind: string; ingested_at: string; privacy: Privacy;
@@ -80,9 +81,9 @@ export function Knowledge() {
 
   return (
     <section className="page">
-      <h2>Knowledge</h2>
+      <PageHead title="Conocimiento" sub="Documentos que Alice puede consultar. Todo se indexa en este equipo." />
       <div className="card">
-        <h3>Subir documentos</h3>
+        <h2>Subir documentos</h2>
         <p className="muted">PDF, Markdown, TXT, LOG, CSV o XLSX, hasta {maxMb} MB. Todo se procesa en este equipo. La privacidad elegida se aplica al documento y a todo lo que se derive de él.</p>
         <div className="row wrap">
           <label className="inline">Privacidad
@@ -102,7 +103,7 @@ export function Knowledge() {
 
       <div className="card">
         <div className="row wrap between">
-          <h3>Catálogo {docs && <span className="muted">({docs.length})</span>}</h3>
+          <h2>Catálogo {docs && <span className="muted">({docs.length})</span>}</h2>
           <input type="search" placeholder="Buscar por nombre…" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Buscar documentos" />
         </div>
         {err && <p className="error" role="alert">{err}</p>}

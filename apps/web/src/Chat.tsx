@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api, errMsg, raw } from "./api";
-import type { LogoState } from "./Logo";
+import { Logo, type LogoState } from "./Logo";
 import { renderMarkdown } from "./md";
 
 export type Privacy = "PUBLIC" | "INTERNAL" | "PRIVATE";
@@ -148,12 +148,15 @@ export function Chat({ setLogo }: { setLogo: (s: LogoState) => void }) {
 
   return (
     <section className="chat">
+      <h1 className="sr-only">Chat</h1>
       <div className="msgs" role="log" aria-label="Conversación">
+        <div className="thread">
         {msgs.length === 0 && (
           <div className="empty">
+            <Logo size={88} />
             <h2>¿En qué te ayudo?</h2>
             <p>Las consultas se procesan en este equipo por defecto. Nada sale a un proveedor externo sin que lo autorices aquí.</p>
-            <p className="muted">Puedes adjuntar documentos listos de Knowledge, preguntar por el estado del sistema («¿cómo va la GPU?») o por tus tablas.</p>
+            <p className="muted">Puedes adjuntar documentos listos de Conocimiento, preguntar por el estado del sistema («¿cómo va la GPU?») o por tus tablas.</p>
           </div>
         )}
         {msgs.map((m) => m.role === "user" ? (
@@ -165,42 +168,44 @@ export function Chat({ setLogo }: { setLogo: (s: LogoState) => void }) {
           <AssistantMsg key={m.id} m={m} onAuthorize={() => authorize(m)} onLocal={() => continueLocal(m)}
             onCancel={() => { patch(m.id, () => ({ status: "cancelled", consent: undefined })); setLogo("idle"); }} />
         ))}
+        </div>
         <div ref={endRef} />
         <p className="sr-only" aria-live="polite">{busy ? "Alice está respondiendo" : msgs.length ? "Respuesta terminada" : ""}</p>
       </div>
 
       <form className="composer" onSubmit={send}>
-        <div className="row wrap">
-          <label className="inline">Privacidad
-            <select value={privacy} onChange={(e) => setPrivacy(e.target.value as Privacy)} title={PRIV_HELP[privacy]}>
-              <option value="PRIVATE">PRIVATE</option><option value="INTERNAL">INTERNAL</option><option value="PUBLIC">PUBLIC</option>
-            </select>
-          </label>
-          <details className="attach">
-            <summary>Adjuntos ({attached.length})</summary>
-            <div className="pop">
-              {docs.length === 0 ? <p className="muted">No hay documentos listos. Súbelos en Knowledge.</p> :
-                docs.map((d) => (
-                  <label key={d.document_id} className="check">
-                    <input type="checkbox" checked={attached.includes(d.document_id)}
-                      onChange={(e) => setAttached((a) => e.target.checked ? [...a, d.document_id] : a.filter((x) => x !== d.document_id))} />
-                    {d.original_name} <PrivBadge p={d.privacy} />
-                  </label>))}
-              <button type="button" className="ghost small" onClick={loadDocs}>Actualizar lista</button>
-            </div>
-          </details>
-          <span className="muted small-text">Efectiva: <PrivBadge p={effective} />
-            {raisedBy.length > 0 && <> elevada por {raisedBy.join(" y ")}</>}</span>
-          {msgs.length > 0 && !busy && <button type="button" className="ghost small" onClick={() => { setMsgs([]); setLogo("idle"); }}>Nueva conversación</button>}
-        </div>
-        <p className="muted small-text">{PRIV_HELP[privacy]}</p>
-        <div className="row">
+        <div className="composer-box">
           <textarea value={text} onChange={(e) => setText(e.target.value)} rows={2} maxLength={20000} placeholder="Escribe tu consulta…"
             aria-label="Mensaje" onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }} />
-          {busy
-            ? <button type="button" className="danger" onClick={() => ctrl.current?.abort()}>Cancelar</button>
-            : <button className="primary" disabled={!text.trim()}>Enviar</button>}
+          <div className="composer-bar">
+            <label className="inline">Privacidad
+              <select value={privacy} onChange={(e) => setPrivacy(e.target.value as Privacy)} title={PRIV_HELP[privacy]}>
+                <option value="PRIVATE">PRIVATE</option><option value="INTERNAL">INTERNAL</option><option value="PUBLIC">PUBLIC</option>
+              </select>
+            </label>
+            <details className="attach">
+              <summary>Adjuntos ({attached.length})</summary>
+              <div className="pop">
+                {docs.length === 0 ? <p className="muted">No hay documentos listos. Súbelos en Conocimiento.</p> :
+                  docs.map((d) => (
+                    <label key={d.document_id} className="check">
+                      <input type="checkbox" checked={attached.includes(d.document_id)}
+                        onChange={(e) => setAttached((a) => e.target.checked ? [...a, d.document_id] : a.filter((x) => x !== d.document_id))} />
+                      {d.original_name} <PrivBadge p={d.privacy} />
+                    </label>))}
+                <button type="button" className="ghost small" onClick={loadDocs}>Actualizar lista</button>
+              </div>
+            </details>
+            <span className="muted small-text">Efectiva: <PrivBadge p={effective} />
+              {raisedBy.length > 0 && <> elevada por {raisedBy.join(" y ")}</>}</span>
+            <span className="spacer" />
+            {msgs.length > 0 && !busy && <button type="button" className="ghost small" onClick={() => { setMsgs([]); setLogo("idle"); }}>Nueva conversación</button>}
+            {busy
+              ? <button type="button" className="danger" onClick={() => ctrl.current?.abort()}>Cancelar</button>
+              : <button className="primary" disabled={!text.trim()}>Enviar</button>}
+          </div>
         </div>
+        <p className="muted small-text composer-help">{PRIV_HELP[privacy]} · Intro envía, Mayús+Intro salto de línea.</p>
       </form>
     </section>
   );
@@ -222,7 +227,9 @@ function AssistantMsg({ m, onAuthorize, onLocal, onCancel }: { m: Msg; onAuthori
   const html = useMemo(() => renderMarkdown(m.content), [m.content]);
   const c = m.consent;
   return (
-    <div className="msg assistant">
+    <div className="msg assistant" data-route={m.decision ? LOGO_FOR_ROUTE[m.decision.route] ?? "local" : undefined}>
+      <span className="avatar-ai" aria-hidden />
+      <div className="msg-body">
       <div className="bubble">
         {m.content ? <div className="md" dangerouslySetInnerHTML={{ __html: html }} />
           : m.status === "streaming" ? <span className="muted typing">{m.decision ? "Generando…" : "Decidiendo ruta…"}</span> : null}
@@ -255,7 +262,7 @@ function AssistantMsg({ m, onAuthorize, onLocal, onCancel }: { m: Msg; onAuthori
       {(m.decision || m.done) && (
         <details className="details">
           <summary>
-            {m.decision?.route ?? "—"} · {m.done?.provider ?? "…"}{m.done ? ` · ${m.done.latency_s}s` : ""} <PrivBadge p={m.privacy} />
+            <i className="route-dot" aria-hidden />{m.decision?.route ?? "—"} · {m.done?.provider ?? "…"}{m.done ? ` · ${m.done.latency_s}s` : ""} <PrivBadge p={m.privacy} />
           </summary>
           <dl>
             <dt>Ruta</dt><dd>{m.decision?.route} <span className="muted">({m.decision?.decided_by})</span></dd>
@@ -277,6 +284,7 @@ function AssistantMsg({ m, onAuthorize, onLocal, onCancel }: { m: Msg; onAuthori
             </li>))}</ol></>}
         </details>
       )}
+      </div>
     </div>
   );
 }

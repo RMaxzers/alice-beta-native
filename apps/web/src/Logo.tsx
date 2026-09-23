@@ -14,6 +14,7 @@ export function Logo({ state = "idle", size = 40 }: { state?: LogoState; size?: 
   return (
     <svg className="logo" data-state={state} width={size} height={size} viewBox="0 0 100 100" role="img"
       aria-label={`Alice: ${STATE_LABEL[state]}`}>
+      <circle className="orbit" cx="50" cy="50" r="40" />
       <g className="links">
         {NODES.map(([x, y, k], i) => (
           <line key={i} x1="50" y1="50" x2={x} y2={y} data-k={k} style={{ animationDelay: `${i * 0.18}s` }} />

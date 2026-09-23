@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, errMsg, fmtAge, fmtTime, fmtValue } from "./api";
-import { HealthGrid, type Health } from "./pages";
+import { HealthGrid, PageHead, type Health } from "./pages";
 
 type Metric = { value: number | null; unit?: string; age_s?: number | null; error?: string };
 type Overview = {
@@ -25,7 +25,8 @@ const CATALOG = ["host_cpu_percent", "host_mem_used_bytes", "host_mem_available_
   "alice_request_rate", "alice_p95_latency_s", "alice_errors_rate", "dependency_up", "scrape_up"];
 const DEFAULT_CHARTS = ["host_cpu_percent", "host_mem_used_bytes", "gpu_util_percent", "gpu_mem_used_bytes", "gpu_temp_c", "alice_p95_latency_s"];
 const WINDOWS: [number, string][] = [[15, "15 min"], [30, "30 min"], [60, "1 h"], [360, "6 h"], [1440, "24 h"]];
-const COLORS = ["#5eead4", "#a78bfa", "#fbbf24", "#f472b6", "#60a5fa", "#4ade80"];
+// Fixed-order series slots from theme.css (validated for CVD); never cycled past 6.
+const COLORS = [1, 2, 3, 4, 5, 6].map((i) => `var(--series-${i})`);
 
 export function Observability() {
   const [ov, setOv] = useState<Overview | null>(null);
@@ -42,18 +43,15 @@ export function Observability() {
   const loopback = ["127.0.0.1", "localhost"].includes(location.hostname);
   return (
     <section className="page">
-      <div className="row wrap between">
-        <h2>Observability</h2>
-        <div className="row wrap">
-          <label className="inline">Intervalo
-            <select value={minutes} onChange={(e) => setMinutes(+e.target.value)}>
-              {WINDOWS.map(([m, l]) => <option key={m} value={m}>{l}</option>)}
-            </select>
-          </label>
-          <button className="ghost small" onClick={() => setTick((x) => x + 1)}>Actualizar</button>
-          {ov && <a className="button" href={ov.grafana_url} target="_blank" rel="noopener noreferrer">Abrir Grafana</a>}
-        </div>
-      </div>
+      <PageHead title="Observabilidad" sub="Métricas de Prometheus del equipo y registro local de consultas.">
+        <label className="inline">Intervalo
+          <select value={minutes} onChange={(e) => setMinutes(+e.target.value)}>
+            {WINDOWS.map(([m, l]) => <option key={m} value={m}>{l}</option>)}
+          </select>
+        </label>
+        <button className="ghost small" onClick={() => setTick((x) => x + 1)}>Actualizar</button>
+        {ov && <a className="button" href={ov.grafana_url} target="_blank" rel="noopener noreferrer">Abrir Grafana</a>}
+      </PageHead>
       {ov && !loopback && <p className="muted small-text">El enlace de Grafana apunta a {new URL(ov.grafana_url).host}; puede no ser accesible desde este dispositivo remoto.</p>}
       {err && <p className="error" role="alert">{err}</p>}
 
@@ -62,8 +60,8 @@ export function Observability() {
           const mt = ov.metrics[k];
           return (
             <div key={k} className="tile" title={mt?.error ?? "Prometheus, consulta instantánea"}>
-              <small>{label}</small>
-              <strong>{mt?.value == null ? "sin datos" : fmtValue(mt.value, mt.unit ?? "")}</strong>
+              <span className="tile-label">{label}</span>
+              <strong className={mt?.value == null ? "tile-value empty" : "tile-value"}>{mt?.value == null ? "sin datos" : fmtValue(mt.value, mt.unit ?? "")}</strong>
               <small className="muted">{mt?.error ? "Prometheus no disponible" : mt?.value == null ? "sin muestra" : `muestra ${fmtAge(mt.age_s)}`}</small>
             </div>);
         })}
@@ -83,22 +81,24 @@ export function Observability() {
 
       {ov && <div className="grid2">
         <div className="card">
-          <h3>Uso de hoy</h3>
+          <h2>Uso de hoy</h2>
           <p className="muted small-text">Fuente: registro local de Alice (SQLite).</p>
           {Object.keys(ov.usage_today.by_provider).length === 0 ? <p className="muted">Sin consultas completadas hoy.</p> :
-            <ul>{Object.entries(ov.usage_today.by_provider).map(([p, n]) => <li key={p}>{p}: {n}</li>)}</ul>}
-          <p>Coste cloud contabilizado: USD {ov.usage_today.spent.accounted.toFixed(4)}<br />
-            Reservado sin conciliar: USD {ov.usage_today.spent.reserved_open.toFixed(4)}<br />
-            Llamadas con coste desconocido: {ov.usage_today.spent.unknown_cost_calls}</p>
+            <Bars data={ov.usage_today.by_provider} />}
+          <dl className="kv">
+            <dt>Coste cloud contabilizado</dt><dd className="num">USD {ov.usage_today.spent.accounted.toFixed(4)}</dd>
+            <dt>Reservado sin conciliar</dt><dd className="num">USD {ov.usage_today.spent.reserved_open.toFixed(4)}</dd>
+            <dt>Llamadas con coste desconocido</dt><dd className="num">{ov.usage_today.spent.unknown_cost_calls}</dd>
+          </dl>
         </div>
         <div className="card">
-          <h3>Dependencias</h3>
+          <h2>Dependencias</h2>
           <HealthGrid health={ov.health} compact />
         </div>
       </div>}
 
       {ov && <div className="card">
-        <h3>Últimas consultas</h3>
+        <h2>Últimas consultas</h2>
         {ov.recent_requests.length === 0 ? <p className="muted">Aún no hay consultas registradas.</p> :
           <div className="table-wrap"><table>
             <thead><tr><th>Id</th><th>Inicio</th><th>Ruta</th><th>Proveedor</th><th>Modelo</th><th>Estado</th><th>Duración</th></tr></thead>
@@ -112,9 +112,22 @@ export function Observability() {
   );
 }
 
+// Horizontal bars: consultas por proveedor (magnitude, one hue; value labelled in text ink).
+function Bars({ data }: { data: Record<string, number> }) {
+  const rows = Object.entries(data).sort((a, b) => b[1] - a[1]);
+  const max = Math.max(...rows.map(([, n]) => n), 1);
+  return (
+    <ul className="bars" aria-label="Consultas completadas hoy por proveedor">
+      {rows.map(([p, n]) => (
+        <li key={p}><span>{p}</span><span className="bar"><i style={{ width: `${(n / max) * 100}%` }} /></span><span className="num">{n}</span></li>))}
+    </ul>
+  );
+}
+
 function Chart({ metric, minutes, tick }: { metric: string; minutes: number; tick: number }) {
   const [r, setR] = useState<Range | null>(null);
   const [err, setErr] = useState("");
+  const [hover, setHover] = useState<number | null>(null); // fraction 0..1 across the plot
   useEffect(() => {
     let live = true;
     api<Range>(`/api/observability/range?metric=${encodeURIComponent(metric)}&minutes=${minutes}`)
@@ -123,15 +136,15 @@ function Chart({ metric, minutes, tick }: { metric: string; minutes: number; tic
     return () => { live = false; };
   }, [metric, minutes, tick]);
 
-  const W = 320, H = 120, P = 4;
+  const W = 320, H = 140;
   const end = Date.now() / 1000, start = end - minutes * 60;
   const pts = r?.series.flatMap((s) => s.points) ?? [];
   const hasData = pts.length > 0;
   let lo = Math.min(...pts.map((p) => p[1])), hi = Math.max(...pts.map((p) => p[1]));
   if (r?.unit.startsWith("%")) { lo = 0; hi = Math.max(100, hi); }
   if (hasData && lo === hi) { lo -= 1; hi += 1; }
-  const x = (t: number) => P + ((t - start) / (end - start)) * (W - 2 * P);
-  const y = (v: number) => H - P - ((v - lo) / (hi - lo)) * (H - 2 * P);
+  const x = (t: number) => ((t - start) / (end - start)) * W;
+  const y = (v: number) => H - ((v - lo) / (hi - lo)) * H;
   const last = r?.coverage.last;
 
   function path(points: [number, number][]) {
@@ -141,15 +154,34 @@ function Chart({ metric, minutes, tick }: { metric: string; minutes: number; tic
     return points.map((p, i) => `${i === 0 || p[0] - points[i - 1][0] > 3 * step ? "M" : "L"}${x(p[0]).toFixed(1)},${y(p[1]).toFixed(1)}`).join("");
   }
   const label = (l: Record<string, string>) => Object.entries(l).filter(([k]) => !["__name__", "job", "instance"].includes(k)).map(([, v]) => v).join(" ") || "serie";
+  // Nearest sample per series to the hovered time (only within 2 min, so gaps read as gaps).
+  const hoverT = hover == null ? null : start + hover * (end - start);
+  const nearest = hoverT == null || !r ? [] : r.series.slice(0, 6).map((s, i) => {
+    const p = s.points.reduce<[number, number] | null>((b, q) => (!b || Math.abs(q[0] - hoverT) < Math.abs(b[0] - hoverT) ? q : b), null);
+    return { i, name: label(s.labels), p: p && Math.abs(p[0] - hoverT) < 120 ? p : null };
+  });
 
   return (
     <figure className="chart card">
       <figcaption><strong>{r?.description ?? metric}</strong> <span className="muted">[{r?.unit ?? "—"}]</span></figcaption>
       {hasData ? (
-        <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label={`${metric}, últimos ${minutes} minutos`}>
-          <line x1={P} x2={W - P} y1={H - P} y2={H - P} className="axis" />
-          {r!.series.map((s, i) => <path key={i} d={path(s.points)} stroke={COLORS[i % COLORS.length]} className="line" />)}
-        </svg>
+        <div className="plot" onPointerMove={(e) => { const b = e.currentTarget.getBoundingClientRect(); setHover(Math.min(1, Math.max(0, (e.clientX - b.left) / b.width))); }}
+          onPointerLeave={() => setHover(null)}>
+          <span className="y-hi">{fmtValue(hi, r!.unit)}</span><span className="y-lo">{fmtValue(lo, r!.unit)}</span>
+          <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" role="img" aria-label={`${metric}, últimos ${minutes} minutos`}>
+            {[0, 0.5, 1].map((f) => <line key={f} x1={0} x2={W} y1={f * H} y2={f * H} className="grid" />)}
+            {r!.series.slice(0, 6).map((s, i) => <path key={i} d={path(s.points)} style={{ stroke: COLORS[i] }} className="line" />)}
+            {hover != null && <line x1={hover * W} x2={hover * W} y1={0} y2={H} className="cross" />}
+          </svg>
+          {hover != null && hoverT != null && (
+            <div className={`tip ${hover > 0.6 ? "left" : ""}`} style={{ left: `${hover * 100}%` }}>
+              <div className="muted">{new Date(hoverT * 1000).toLocaleTimeString("es", { hour: "2-digit", minute: "2-digit" })}</div>
+              {nearest.map((n) => (
+                <div key={n.i}>{r!.series.length > 1 && <i style={{ background: COLORS[n.i] }} />}{r!.series.length > 1 ? `${n.name}: ` : ""}
+                  <strong>{n.p ? fmtValue(n.p[1], r!.unit) : "sin muestra"}</strong></div>))}
+            </div>)}
+          <div className="x-axis"><span>−{minutes} min</span><span>ahora</span></div>
+        </div>
       ) : <div className="nodata">sin datos{err ? ` — ${err}` : ""}</div>}
       <div className="muted small-text chart-meta">
         {hasData && <span>rango {fmtValue(Math.min(...pts.map((p) => p[1])), r!.unit)} – {fmtValue(Math.max(...pts.map((p) => p[1])), r!.unit)}</span>}
@@ -157,7 +189,8 @@ function Chart({ metric, minutes, tick }: { metric: string; minutes: number; tic
         {r && hasData && <span>cobertura {(r.coverage.fraction * 100).toFixed(0)}%{r.coverage.gaps.length ? `, ${r.coverage.gaps.length} huecos` : ""}</span>}
       </div>
       {r && r.series.length > 1 && <div className="legend">{r.series.slice(0, 6).map((s, i) => (
-        <span key={i}><i style={{ background: COLORS[i % COLORS.length] }} />{label(s.labels)}: {fmtValue(s.points.at(-1)?.[1], r.unit)}</span>))}</div>}
+        <span key={i}><i style={{ background: COLORS[i] }} />{label(s.labels)}: {fmtValue(s.points.at(-1)?.[1], r.unit)}</span>))}
+        {r.series.length > 6 && <span className="muted">+{r.series.length - 6} series más (ver en Grafana)</span>}</div>}
     </figure>
   );
 }
