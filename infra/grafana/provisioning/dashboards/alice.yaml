@@ -1,0 +1,9 @@
+apiVersion: 1
+providers:
+  - name: alice
+    folder: ALICE
+    type: file
+    disableDeletion: true
+    allowUiUpdates: false
+    options:
+      path: $ALICE_GRAFANA_DASHBOARDS

@@ -71,6 +71,10 @@ class EgressGate:
 
     # --- ticket lifecycle -------------------------------------------------
     def request_ticket(self, username: str, provider: str, model: str, payload: dict | str, max_cost_usd: float) -> str:
+        if self.local_only:
+            raise EgressDenied("local_only", "Modo 'Solo local' activo: no se ofrecen autorizaciones de salida")
+        if not self.cloud_enabled:
+            raise EgressDenied("cloud_disabled", "Cloud deshabilitado en configuración")
         tid = secrets.token_urlsafe(18)
         now = _now()
         with tx(self.con):
