@@ -6,6 +6,7 @@ import { Chat } from "./Chat";
 import { Knowledge } from "./Knowledge";
 import { Observability } from "./Observability";
 import { Models, SettingsPage, SystemPage } from "./pages";
+import "./theme.css";
 import "./styles.css";
 
 const TABS = [

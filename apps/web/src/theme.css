@@ -1,0 +1,43 @@
+/* Design tokens: the shared contract between the app shell and the landing/map.
+   Token NAMES are fixed; the design agent owns the VALUES. Everything else uses var(--…) only. */
+@import "@fontsource-variable/geist";
+@import "@fontsource-variable/geist-mono";
+@import "@fontsource-variable/space-grotesk";
+
+:root {
+  color-scheme: dark;
+  /* surfaces, back to front */
+  --bg: #0b1019;
+  --bg-elev-1: #121a27;
+  --bg-elev-2: #182233;
+  --surface-glass: rgb(18 26 39 / 0.72);
+  --line: #26324a;
+  --line-strong: #6b7a96;
+  /* text */
+  --text: #e6ebf3;
+  --text-muted: #9aa7bd;
+  /* brand + status */
+  --accent: #5eead4;
+  --accent-2: #a78bfa;
+  --accent-ink: #062a25;
+  --ok: #4ade80;
+  --warn: #fbbf24;
+  --danger: #f87171;
+  --info: #a78bfa;
+  /* where a request went (map, chat details, charts) */
+  --route-local: #5eead4;
+  --route-knowledge: #60a5fa;
+  --route-cloud: #f59e0b;
+  --route-obs: #a78bfa;
+  /* depth */
+  --shadow-1: 0 1px 2px rgb(0 0 0 / 0.4);
+  --shadow-2: 0 8px 30px rgb(0 0 0 / 0.45);
+  --glow: 0 0 24px rgb(94 234 212 / 0.25);
+  --radius-s: 6px;
+  --radius-m: 10px;
+  --radius-l: 16px;
+  /* type */
+  --font-sans: "Geist Variable", system-ui, "Segoe UI", sans-serif;
+  --font-display: "Space Grotesk Variable", "Geist Variable", system-ui, sans-serif;
+  --font-mono: "Geist Mono Variable", ui-monospace, Consolas, monospace;
+}
