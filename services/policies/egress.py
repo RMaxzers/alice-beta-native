@@ -70,7 +70,8 @@ class EgressGate:
         self.local_only = local_only
 
     # --- ticket lifecycle -------------------------------------------------
-    def request_ticket(self, username: str, provider: str, model: str, payload: dict | str, max_cost_usd: float) -> str:
+    def request_ticket(self, username: str, provider: str, model: str, payload: dict | str, max_cost_usd: float,
+                       route: str | None = None, model_alias: str | None = None) -> str:
         if self.local_only:
             raise EgressDenied("local_only", "Modo 'Solo local' activo: no se ofrecen autorizaciones de salida")
         if not self.cloud_enabled:
@@ -79,11 +80,18 @@ class EgressGate:
         now = _now()
         with tx(self.con):
             self.con.execute(
-                "INSERT INTO egress_tickets(ticket_id, username, payload_hash, provider, model, max_cost_usd, created_at, expires_at)"
-                " VALUES (?,?,?,?,?,?,?,?)",
-                (tid, username, payload_hash(payload), provider, model, max_cost_usd, now.isoformat(), (now + TICKET_TTL).isoformat()),
+                "INSERT INTO egress_tickets(ticket_id, username, payload_hash, provider, model, max_cost_usd, created_at, expires_at,"
+                " route, model_alias) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                (tid, username, payload_hash(payload), provider, model, max_cost_usd, now.isoformat(), (now + TICKET_TTL).isoformat(),
+                 route, model_alias),
             )
         return tid
+
+    def ticket_route(self, ticket_id: str, username: str) -> tuple[str, str | None] | None:
+        """Route/alias recorded when the ticket was issued, so a resend resumes the authorized destination.
+        Only a routing hint: clear() still enforces user, approval, expiry, single use, destination and payload hash."""
+        row = self.con.execute("SELECT route, model_alias, username FROM egress_tickets WHERE ticket_id=?", (ticket_id,)).fetchone()
+        return (row["route"], row["model_alias"]) if row and row["username"] == username and row["route"] else None
 
     def approve(self, ticket_id: str, username: str) -> None:
         with tx(self.con):

@@ -55,8 +55,12 @@ class Ingestor:
         except ex.ExtractionError as e:
             raise IngestError(str(e)) from e
         checksum = hashlib.sha256(data).hexdigest()
-        existing = self.con.execute("SELECT * FROM documents WHERE checksum=?", (checksum,)).fetchone()
+        existing = self.con.execute("SELECT * FROM documents WHERE checksum=? AND owner=?", (checksum, owner)).fetchone()
         if existing:
+            if existing["status"] == "failed":
+                # Same bytes after a failed/interrupted run: retry ingestion instead of returning a dead duplicate.
+                self._status(existing["document_id"], "pending", "reintento")
+                return dict(self.con.execute("SELECT * FROM documents WHERE document_id=?", (existing["document_id"],)).fetchone()), True
             return dict(existing), False  # identical copy: dedupe
         prev = self.con.execute("SELECT document_id, version FROM documents WHERE original_name=? AND owner=? ORDER BY version DESC LIMIT 1",
                                 (name, owner)).fetchone()

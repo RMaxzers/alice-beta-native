@@ -38,6 +38,7 @@ class Settings(BaseSettings):
     tavily_api_key: SecretStr = SecretStr("")
 
     qdrant_url: str = "http://127.0.0.1:6333"
+    qdrant_collection: str = "alice_chunks"
     prometheus_url: str = "http://127.0.0.1:9090"
     alice_grafana_local_url: str = "http://127.0.0.1:3000"
 

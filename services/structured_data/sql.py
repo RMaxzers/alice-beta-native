@@ -64,7 +64,10 @@ def _coerce(v: str):
 def read_table(kind: str, data: bytes) -> tuple[list[str], list[list]]:
     if kind == "csv":
         text = data.decode("utf-8-sig", errors="replace")
-        dialect = csv.Sniffer().sniff(text[:4096], delimiters=",;\t|")
+        try:
+            dialect = csv.Sniffer().sniff(text[:4096], delimiters=",;\t|")
+        except csv.Error:  # e.g. a single-column table: no delimiter to detect
+            dialect = csv.excel
         rows = list(csv.reader(io.StringIO(text), dialect))
     elif kind == "xlsx":
         from openpyxl import load_workbook

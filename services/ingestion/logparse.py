@@ -13,7 +13,9 @@ TS_PATTERNS = [
 ]
 SEV = re.compile(r"\b(TRACE|DEBUG|INFO|NOTICE|WARN(?:ING)?|ERROR|ERR|CRIT(?:ICAL)?|FATAL|PANIC|EMERG)\b", re.I)
 SEV_NORM = {"WARNING": "WARN", "ERR": "ERROR", "CRITICAL": "CRITICAL", "CRIT": "CRITICAL", "PANIC": "FATAL", "EMERG": "FATAL"}
-SECRETISH = re.compile(r"(?i)(password|passwd|pwd|secret|token|api[_-]?key|authorization)\s*[=:]\s*\S+|bearer\s+[a-z0-9._-]{8,}|sk-[a-z0-9_-]{16,}")
+# key=value / key: value (value may be "Bearer <tok>"), then bare token shapes. The secret itself is always dropped.
+SECRET_KV = re.compile(r"(?i)(password|passwd|pwd|secret|token|api[_-]?key|authorization)(\s*[=:]\s*)(?:(?:bearer|basic)\s+)?\S+")
+SECRET_BARE = re.compile(r"(?i)\bbearer\s+[a-z0-9._~+/-]{8,}=*|\b(?:sk|ghp|gho|ghs|github_pat|xox[abpr])[-_][a-z0-9_-]{12,}")
 
 
 @dataclass
@@ -27,7 +29,8 @@ class LogEvent:
 
 
 def redact(line: str) -> str:
-    return SECRETISH.sub(lambda m: m.group(0).split("=")[0].split(":")[0] + "=<REDACTED>", line)
+    line = SECRET_KV.sub(lambda m: m.group(1) + m.group(2) + "<REDACTED>", line)
+    return SECRET_BARE.sub("<REDACTED>", line)
 
 
 def template_of(msg: str) -> str:
@@ -100,5 +103,6 @@ if __name__ == "__main__":  # self-check
     s = summarize(ev)
     assert s["top_errors"][0]["count"] == 2, s
     assert "hunter2" not in str(ev)
+    assert redact("Authorization: Bearer abcdefgh12345 key sk-or-v1-ABCDEFGHIJKLMNOP") == "Authorization: <REDACTED> key <REDACTED>"
     assert s["time_range"]["first"].startswith("2026-09-20T10:00:01")
     print("logparse ok")

@@ -114,7 +114,10 @@ class Orchestrator:
             priv = effective_privacy(req.privacy, *[h.privacy for h in req.history], *[x["privacy"] for x in docs])
             ctx = RouterContext(privacy=priv, attached_kinds=tuple(x["kind"] for x in docs),
                                 cloud_available=self.s.cloud_available(), web_available=self.s.web_available())
-            d, rt = await self.s.router.route(req.message, ctx, req.force_route)
+            resume = self.s.gate.ticket_route(req.authorization_ticket, user) if req.authorization_ticket else None
+            d, rt = await self.s.router.route(req.message, ctx, Route(resume[0]) if resume else req.force_route)
+            if resume and resume[1] and d.route.value == resume[0]:
+                d = d.model_copy(update={"model_alias": resume[1]})
             m.ROUTING_DURATION.labels(d.decided_by).observe(rt)
             yield {"type": "route", "decision": d.model_dump(mode="json"), "raised_by": self._raised_by(req, docs)}
 
@@ -205,7 +208,7 @@ class Orchestrator:
                                                 [x["document_id"] for x in docs] or None)
             timing["retrieval_s"] = time.perf_counter() - tr
             m.RAG_DURATION.observe(timing["retrieval_s"])
-            facts = search_facts(self.s.con, req.message)
+            facts = search_facts(self.s.con, req.message, user)
             yield {"type": "tool", "name": "rag", "summary": f"{len(chunks)} fragmentos recuperados, {len(facts)} hechos"}
             fact_sources = [Source(kind="fact", title=f["statement"][:80], location=f["source_id"], privacy=Privacy(f["privacy"]),
                                    verification=f["verification"]) for f in facts]
@@ -303,18 +306,20 @@ class Orchestrator:
         async for t in self._local_stream("local-general", msgs, timing):
             yield {"type": "token", "text": t}
 
-    async def _needs_ticket(self, req, user, provider, model, payload, privacy, reason, fields, preview, est_cost):
+    async def _needs_ticket(self, req, user, provider, model, payload, privacy, reason, fields, preview, est_cost, d: RouteDecision):
         """Returns a Clearance, or None after emitting an authorization request (payload-bound, single use)."""
         if privacy == Privacy.PUBLIC and not req.authorization_ticket:
             return self.s.gate.clear(username=user, provider=provider, model=model, payload=payload, privacy=privacy, est_cost_usd=est_cost or 0)
         if req.authorization_ticket:
             return self.s.gate.clear(username=user, provider=provider, model=model, payload=payload, privacy=privacy,
                                      ticket_id=req.authorization_ticket, est_cost_usd=est_cost or 0)
-        tid = self.s.gate.request_ticket(user, provider, model, payload, max_cost_usd=max(est_cost or 0, 0.0) + 1e-6)
+        # Authorized cap = estimate + 20 % so a small catalog price move between preview and resend is not a hard failure.
+        cap = round(max(est_cost or 0, 0.0) * 1.2 + 1e-6, 8)
+        tid = self.s.gate.request_ticket(user, provider, model, payload, max_cost_usd=cap, route=d.route.value, model_alias=d.model_alias)
         from services.policies.egress import payload_hash
         pv = EgressPreview(provider=provider, recipients=self.s.recipients(provider, model), model=model, reason=reason,
                            privacy=privacy, fields=fields, payload_preview=preview[:1500], payload_hash=payload_hash(payload),
-                           estimated_cost_usd=est_cost, ticket_request_id=tid)
+                           estimated_cost_usd=est_cost, max_cost_usd=cap, ticket_request_id=tid)
         return pv
 
     async def _cloud(self, req, user, d: RouteDecision, rid, timing):
@@ -326,7 +331,7 @@ class Orchestrator:
         est = await self.s.openrouter.estimate_max_cost(a["model"], messages, a.get("max_tokens", 1500))
         res = await self._needs_ticket(req, user, "openrouter", a["model"], payload, d.privacy,
                                        f"Ruta {d.route.value}: {d.reason}", ["mensaje actual"] + (["historial PUBLIC"] if hist else []),
-                                       req.message, est)
+                                       req.message, est, d)
         if isinstance(res, EgressPreview):
             timing["halted"] = True
             yield {"type": "authorization_required", "preview": res.model_dump(mode="json"),
@@ -362,9 +367,10 @@ class Orchestrator:
             w in req.message.lower() for w in ("noticia", "novedad", "reciente")) else "general"
         # Only the current message leaves the host (no history, no documents).
         payload = search_payload(req.message[:400], topic)
-        res = await self._needs_ticket(req, user, "tavily", "search", payload, effective_privacy(req.privacy),
+        # Effective privacy of the whole operation (attachments/history included), not just the message label (§8.1).
+        res = await self._needs_ticket(req, user, "tavily", "search", payload, d.privacy,
                                        f"Ruta {d.route.value}: requiere información actual de internet",
-                                       ["texto de la consulta (sin historial ni documentos)"], req.message[:400], 0.0)
+                                       ["texto de la consulta (sin historial ni documentos)"], req.message[:400], 0.0, d)
         if isinstance(res, EgressPreview):
             timing["halted"] = True
             yield {"type": "authorization_required", "preview": res.model_dump(mode="json"),

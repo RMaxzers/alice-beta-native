@@ -1,6 +1,7 @@
 """Web research: Tavily search (egress-gated) + SSRF-safe URL reader."""
 from __future__ import annotations
 
+import asyncio
 import ipaddress
 import re
 import socket
@@ -13,6 +14,7 @@ from services.policies.egress import Clearance, EgressDenied
 
 TAVILY = "https://api.tavily.com/search"
 MAX_BYTES = 2 * 1024 * 1024
+TIMEOUT_S = 20.0  # total wall time for one read, including redirects and slow bodies
 ALLOWED_TYPES = ("text/html", "text/plain", "application/json", "application/xhtml+xml")
 
 
@@ -51,8 +53,9 @@ class WebSearch:
 # ---------------------------------------------------------------- SSRF-safe reader
 def _ip_blocked(ip: str) -> bool:
     a = ipaddress.ip_address(ip)
-    return (a.is_private or a.is_loopback or a.is_link_local or a.is_multicast or a.is_reserved or a.is_unspecified
-            or (a.version == 6 and a.ipv4_mapped and _ip_blocked(str(a.ipv4_mapped))) or ip.startswith("100.64."))
+    # not is_global also covers 100.64.0.0/10 (CGNAT / Tailscale tailnet), benchmark and documentation ranges.
+    return (not a.is_global or a.is_multicast
+            or (a.version == 6 and a.ipv4_mapped is not None and _ip_blocked(str(a.ipv4_mapped))))
 
 
 def check_url(url: str) -> str:
@@ -77,6 +80,14 @@ def check_url(url: str) -> str:
 async def read_url(url: str, clearance: Clearance) -> dict:
     """Reads a public URL. Every redirect hop is re-validated. Size/time/type bounded."""
     clearance.verify("web-reader", "get", {"url": url})
+    try:
+        async with asyncio.timeout(TIMEOUT_S):
+            return await _read(url)
+    except TimeoutError as e:
+        raise EgressDenied("timeout", f"Lectura excedió el tiempo máximo ({TIMEOUT_S:.0f} s)") from e
+
+
+async def _read(url: str) -> dict:
     # ponytail: DNS is re-resolved by httpx after check_url (TOCTOU/DNS-rebinding window); pin IPs via a custom transport if needed.
     for _ in range(4):
         check_url(url)

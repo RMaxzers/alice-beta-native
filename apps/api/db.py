@@ -140,6 +140,21 @@ MIGRATIONS: list[str] = [
       duration_ms INTEGER
     );
     """,
+    # 2 — per-owner isolation (facts, dedupe), server-side sessions (revocable logout), resumable egress tickets
+    """
+    ALTER TABLE facts ADD COLUMN owner TEXT;
+    CREATE INDEX ix_facts_owner ON facts(owner, subject_key);
+    DROP INDEX ux_documents_checksum;
+    CREATE UNIQUE INDEX ux_documents_owner_checksum ON documents(owner, checksum);
+    CREATE TABLE sessions (
+      sid TEXT PRIMARY KEY,
+      username TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      expires_at INTEGER NOT NULL
+    );
+    ALTER TABLE egress_tickets ADD COLUMN route TEXT;
+    ALTER TABLE egress_tickets ADD COLUMN model_alias TEXT;
+    """,
 ]
 
 _lock = threading.Lock()  # ponytail: single-writer lock for one process; fine for a single-user beta

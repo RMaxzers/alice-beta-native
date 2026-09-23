@@ -13,13 +13,14 @@ import subprocess
 from dataclasses import dataclass
 from typing import Callable
 
+from services.ingestion.logparse import redact
+
 ALLOWED_OPS = frozenset({"list_containers", "container_stats", "container_status", "container_logs"})
 ID_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$")
 LOG_DEFAULT, LOG_MAX = 200, 1000
 SINCE_MAX_S = 24 * 3600
 OUT_MAX = 256 * 1024
 TIMEOUT_S = 5
-SECRETISH = re.compile(r"(?i)(password|secret|token|api[_-]?key)\s*[=:]\s*\S+|bearer\s+\S+")
 
 Runner = Callable[[list[str], int], tuple[int, str, str]]
 
@@ -106,8 +107,8 @@ class DockerAdapter:
         since_s = max(1, min(int(since_s), SINCE_MAX_S))
         out = self._run([self._require(), "logs", "--tail", str(tail), "--since", f"{since_s}s", "--", ref])
         truncated = len(out) > OUT_MAX
-        text = SECRETISH.sub("<REDACTED>", out[:OUT_MAX])
-        return {"name": ref, "tail": tail, "since_s": since_s, "truncated": truncated, "lines": text.splitlines()}
+        return {"name": ref, "tail": tail, "since_s": since_s, "truncated": truncated,
+                "lines": [redact(l) for l in out[:OUT_MAX].splitlines()]}
 
     def call(self, op: str, **kwargs) -> object:
         """Single entry point used by the chat tool executor."""

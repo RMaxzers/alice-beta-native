@@ -105,7 +105,8 @@ async def login(body: Login, request: Request):
 
 
 @app.post("/api/logout")
-async def logout(user: str = Depends(require_user)):
+async def logout(request: Request, user: str = Depends(require_user)):
+    S(request).sessions.revoke(request.cookies.get(COOKIE))
     resp = JSONResponse({"ok": True})
     resp.delete_cookie(COOKIE, path="/")
     return resp
@@ -194,7 +195,10 @@ async def document_file(doc_id: str, request: Request, user: str = Depends(requi
 
 @app.post("/api/documents/{doc_id}/cancel")
 async def cancel_doc(doc_id: str, request: Request, user: str = Depends(require_user)):
-    return {"cancelled": S(request).ingestor.cancel(doc_id)}
+    st = S(request)
+    if not st.con.execute("SELECT 1 FROM documents WHERE document_id=? AND owner=?", (doc_id, user)).fetchone():
+        raise HTTPException(404)
+    return {"cancelled": st.ingestor.cancel(doc_id)}
 
 
 @app.delete("/api/documents/{doc_id}")
@@ -224,8 +228,9 @@ async def create_fact(f: FactIn, request: Request, user: str = Depends(require_u
 async def list_facts(request: Request, subject: str | None = None, user: str = Depends(require_user)):
     con = S(request).con
     if subject:
-        return facts_for(con, subject)
-    return {"facts": [dict(r) for r in con.execute("SELECT * FROM facts ORDER BY created_at DESC LIMIT 200")], "conflict": []}
+        return facts_for(con, subject, user)
+    return {"facts": [dict(r) for r in con.execute("SELECT * FROM facts WHERE owner=? ORDER BY created_at DESC LIMIT 200", (user,))],
+            "conflict": []}
 
 
 # ------------------------------------------------------------------ observability / models / system
@@ -263,6 +268,11 @@ async def obs_range(metric: str, minutes: int = 30, request: Request = None, use
         raise HTTPException(503, str(e)) from e
     return {"metric": metric, "unit": r["unit"], "description": r["description"], "coverage": r["coverage"],
             "series": [{"labels": s.labels, "points": s.points} for s in r["series"]], "summary": summarize_series(r)}
+
+
+@app.get("/api/observability/catalog")
+async def obs_catalog(user: str = Depends(require_user)):
+    return [{"name": k, "unit": unit, "description": desc} for k, (_, unit, desc) in CATALOG.items()]
 
 
 @app.get("/api/models")

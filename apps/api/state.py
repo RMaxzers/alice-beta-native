@@ -50,8 +50,10 @@ class AliceState:
         setup_logging(s)
         self.con = connect(s.ops_db)
         migrate(self.con)
+        # ponytail: single-user beta — facts created before per-owner isolation belong to the configured user.
+        self.con.execute("UPDATE facts SET owner=? WHERE owner IS NULL", (s.alice_username,))
         self.aliases: dict = load_yaml("config/models/aliases.yaml")["aliases"]
-        self.sessions = Sessions(s.alice_session_secret.get_secret_value())
+        self.sessions = Sessions(s.alice_session_secret.get_secret_value(), self.con)
         self.local_only = s.alice_local_only
         self.ollama = OllamaProvider(s.ollama_base_url)
         self.openrouter = OpenRouterProvider(s.openrouter_api_key.get_secret_value())
@@ -59,7 +61,7 @@ class AliceState:
         self.hermes = HermesAdapter(s.hermes_enabled, s.hermes_api_url)
         self.docker = DockerAdapter(frozenset(x.strip() for x in s.docker_allowed_containers.split(",") if x.strip()))
         self.grafana_ext = GrafanaAdapter(s.grafana_external_enabled, s.grafana_url, s.grafana_service_account_token.get_secret_value())
-        self.qdrant = Qdrant(s.qdrant_url)
+        self.qdrant = Qdrant(s.qdrant_url, s.qdrant_collection)
         self.prom = PrometheusAdapter(s.prometheus_url)
         self.gate = EgressGate(self.con, cloud_enabled=s.alice_cloud_enabled, local_only=self.local_only)
         self.ledger = Ledger(self.con, s.alice_budget_per_request_usd, s.alice_budget_daily_usd, s.alice_timezone)

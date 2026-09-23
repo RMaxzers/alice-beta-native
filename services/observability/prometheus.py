@@ -54,7 +54,10 @@ class PrometheusAdapter:
                 r = await c.get(f"{self.url}{path}", params=params)
         except httpx.HTTPError as e:
             raise PromError(f"Prometheus no disponible ({type(e).__name__})") from e
-        d = r.json()
+        try:
+            d = r.json()
+        except ValueError as e:
+            raise PromError(f"Respuesta no válida de Prometheus (HTTP {r.status_code})") from e
         if d.get("status") != "success":
             raise PromError(d.get("error", "query failed"))
         return d["data"]

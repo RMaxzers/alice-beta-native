@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import ipaddress
 import json
 from typing import AsyncIterator
+from urllib.parse import urlparse
 
 import httpx
 
@@ -13,6 +15,14 @@ class OllamaProvider:
     local = True
 
     def __init__(self, base_url: str, timeout: float = 180.0):
+        # Local routes, classifier and embeddings must run on this host: refuse any non-loopback endpoint (§8.2, §21.2-4).
+        host = (urlparse(base_url).hostname or "").lower()
+        try:
+            loopback = ipaddress.ip_address(host).is_loopback
+        except ValueError:
+            loopback = host == "localhost"
+        if not loopback:
+            raise ValueError(f"OLLAMA_BASE_URL debe ser loopback (127.0.0.1/localhost/::1), no {host!r}")
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
 

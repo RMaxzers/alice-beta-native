@@ -76,7 +76,8 @@ class ClassifierOutput(BaseModel):
 
 
 class ChatMessage(BaseModel):
-    role: Literal["user", "assistant", "system"]
+    model_config = ConfigDict(extra="forbid")
+    role: Literal["user", "assistant"]  # the system prompt is set by the backend only
     content: str
     privacy: Privacy = Privacy.PRIVATE
 
@@ -113,4 +114,5 @@ class EgressPreview(BaseModel):
     payload_preview: str
     payload_hash: str
     estimated_cost_usd: float | None
+    max_cost_usd: float | None = None  # authorized cap bound to the ticket
     ticket_request_id: str
