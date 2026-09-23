@@ -75,6 +75,19 @@ def test_login_bad_credentials_and_throttle(client, monkeypatch):
     assert client.post("/api/login", json={"username": "admin", "password": "x", "role": "admin"}).status_code == 422
 
 
+def test_login_throttle_not_bypassed_by_rotating_forwarded_for(client, monkeypatch):
+    import apps.api.main as M
+
+    async def no_sleep(_):
+        return None
+    monkeypatch.setattr(M.asyncio, "sleep", no_sleep)
+    for i in range(5):
+        r = client.post("/api/login", json={"username": "admin", "password": "nope"}, headers={"x-forwarded-for": f"10.0.0.{i}"})
+        assert r.status_code == 401
+    r = client.post("/api/login", json={"username": "admin", "password": "correct-horse-battery"}, headers={"x-forwarded-for": "10.0.0.99"})
+    assert r.status_code == 429
+
+
 def test_login_cookie_flags(client):
     r = client.post("/api/login", json={"username": "admin", "password": "correct-horse-battery"})
     sc = r.headers["set-cookie"].lower()

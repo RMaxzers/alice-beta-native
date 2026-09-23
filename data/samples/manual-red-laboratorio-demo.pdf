@@ -1,0 +1,44 @@
+%PDF-1.4
+%âãÏÓ
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [4 0 R 6 0 R] /Count 2 >>
+endobj
+3 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>
+endobj
+4 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents 5 0 R >>
+endobj
+5 0 obj
+<< /Length 340 >>
+stream
+BT /F1 12 Tf 72 760 Td 16 TL (Manual de red del Laboratorio Demo) ' (Dataset sintético de demostración - datos ficticios) ' () ' (Página 1: Topología) ' (La red de oficina usa el segmento 192.168.10.0/24.) ' (El router router-demo-01 es la puerta de enlace \(192.168.10.1\).) ' (El servidor DHCP dhcp-demo-01 tiene la IP 192.168.10.2.) ' ET
+endstream
+endobj
+6 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents 7 0 R >>
+endobj
+7 0 obj
+<< /Length 285 >>
+stream
+BT /F1 12 Tf 72 760 Td 16 TL (Página 2: Red de invitados) ' (Dataset sintético de demostración) ' () ' (La red de invitados usa la VLAN 30 y el segmento 192.168.30.0/24.) ' (El arrendamiento DHCP de invitados dura 4 horas.) ' (Los invitados no tienen acceso a la VLAN de oficina.) ' ET
+endstream
+endobj
+xref
+0 8
+0000000000 65535 f 
+0000000015 00000 n 
+0000000064 00000 n 
+0000000127 00000 n 
+0000000224 00000 n 
+0000000350 00000 n 
+0000000741 00000 n 
+0000000867 00000 n 
+trailer
+<< /Size 8 /Root 1 0 R /Info << /Title (Manual de red Laboratorio Demo - dataset sintetico) >> >>
+startxref
+1203
+%%EOF

@@ -1,0 +1,10 @@
+{
+  "subject_key": "servidor-dhcp-demo.ip",
+  "statement": "El servidor DHCP del Laboratorio Demo (dhcp-demo-01) tiene la IP 192.168.10.2. Dataset sintético de demostración.",
+  "privacy": "INTERNAL",
+  "verification": "VERIFIED",
+  "source_id": "guia-dhcp-laboratorio-demo.md",
+  "source_location": "sección: Resumen",
+  "verified_by": "demo",
+  "notes": "Dataset sintético de demostración"
+}

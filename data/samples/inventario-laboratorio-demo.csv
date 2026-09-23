@@ -1,0 +1,13 @@
+id_activo,nombre,tipo,fabricante,modelo,ubicacion,fecha_compra,estado_soporte
+A-001,router-demo-01,router,Fabricante Demo,RX-100,Sala servidores,2019-03-14,fuera_de_soporte
+A-002,switch-demo-01,switch,Fabricante Demo,SW-24,Sala servidores,2021-06-02,vigente
+A-003,switch-demo-02,switch,Fabricante Demo,SW-24,Planta 1,2021-06-02,vigente
+A-004,dhcp-demo-01,servidor,Servidores Demo,S-200,Sala servidores,2018-11-20,fuera_de_soporte
+A-005,nas-demo-01,almacenamiento,Almacenes Demo,N-4,Sala servidores,2022-01-10,vigente
+A-006,ap-demo-01,punto_acceso,Radios Demo,AP-5,Planta 1,2020-09-15,vigente
+A-007,ap-demo-02,punto_acceso,Radios Demo,AP-3,Planta 2,2016-05-30,fuera_de_soporte
+A-008,impresora-demo-01,impresora,Impresoras Demo,P-10,Planta 1,2023-02-01,vigente
+A-009,pc-demo-01,estacion,Equipos Demo,E-7,Planta 2,2017-08-08,fuera_de_soporte
+A-010,pc-demo-02,estacion,Equipos Demo,E-9,Planta 2,2024-04-12,vigente
+A-011,firewall-demo-01,firewall,Seguridad Demo,F-50,Sala servidores,2023-07-19,vigente
+A-012,ups-demo-01,sai,Energia Demo,U-1500,Sala servidores,2022-10-05,vigente

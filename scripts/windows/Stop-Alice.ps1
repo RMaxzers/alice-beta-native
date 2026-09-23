@@ -1,14 +1,17 @@
 <#
-.SYNOPSIS  Stop only processes Alice started (PID files). Never deletes data; never touches an Ollama it did not start.
+.SYNOPSIS  Detiene solo los procesos que Alice arrancó (manifiestos storage\run\*.json: PID + hora de inicio + ejecutable).
+           Nunca borra datos; nunca toca un Ollama que no arrancó. Mata el árbol del proceso (el python.exe del venv
+           es un lanzador cuyo hijo ejecuta la API).
+.PARAMETER Only  Limita la parada a estos componentes, p. ej. -Only alice-api
 #>
+param([string[]]$Only)
 . "$PSScriptRoot\_common.ps1"
 foreach ($n in 'grafana', 'prometheus', 'alice-api', 'windows_exporter', 'qdrant', 'ollama') {
+  if ($Only -and $n -notin $Only) { continue }
   $id = Get-OwnPid $n
   if ($id) {
-    Stop-Process -Id $id -ErrorAction SilentlyContinue
-    Wait-Process -Id $id -Timeout 10 -ErrorAction SilentlyContinue
-    if (Get-Process -Id $id -ErrorAction SilentlyContinue) { Stop-Process -Id $id -Force -ErrorAction SilentlyContinue }
-    Remove-Item (Join-Path $RunDir "$n.pid") -Force -ErrorAction SilentlyContinue
-    Write-Host ("stopped {0,-17} pid {1}" -f $n, $id)
-  } else { Write-Host ("not running (owned) {0}" -f $n) }
+    Stop-OwnedTree $id
+    Remove-Item (Join-Path $RunDir "$n.json") -Force -ErrorAction SilentlyContinue
+    Write-Host ("detenido {0,-17} pid {1}" -f $n, $id)
+  } else { Write-Host ("no estaba en marcha (propio) {0}" -f $n) }
 }

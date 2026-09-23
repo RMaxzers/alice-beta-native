@@ -2,9 +2,10 @@
 .SYNOPSIS  Verified status. Every line comes from a real probe; nothing is reported HEALTHY without checking.
 #>
 . "$PSScriptRoot\_common.ps1"
+try { Write-ProcessMetrics } catch { Write-Warning "process manifest metrics: $($_.Exception.Message)" }
 $ok = 0; $bad = 0
 function Line($label, $state, $detail) {
-  $color = switch -Regex ($state) { '^HEALTHY|^READY|^OK' { 'Green' } '^DISABLED|^PENDING|^NOT_CONFIGURED|^CONFIGURED' { 'Yellow' } default { 'Red' } }
+  $color = switch -Regex ($state) { '^HEALTHY|^READY|^OK' { 'Green' } '^DISABLED|^PENDING|^NOT_CONFIGURED|^CONFIGURED|^UNAVAILABLE' { 'Yellow' } default { 'Red' } }
   Write-Host ("{0,-15}" -f "${label}:") -NoNewline; Write-Host ("{0,-16}" -f $state) -ForegroundColor $color -NoNewline; Write-Host " $detail"
   if ($color -eq 'Green') { $Script:ok++ } elseif ($color -eq 'Red') { $Script:bad++ }
 }
@@ -29,7 +30,9 @@ $t = Get-Json 'http://127.0.0.1:9090/api/v1/targets'
 if ($t) {
   $up = @($t.data.activeTargets | Where-Object health -eq 'up').Count; $all = @($t.data.activeTargets).Count
   $down = ($t.data.activeTargets | Where-Object health -ne 'up' | ForEach-Object { $_.labels.job }) -join ','
-  Line 'Prometheus' $(if ($up -eq $all) { 'HEALTHY' } else { 'DEGRADED' }) "targets up $up/$all $(if($down){"(down: $down)"})"
+  $unknown = @($t.data.activeTargets | Where-Object health -eq 'unknown').Count
+  if ($all -eq 0 -or $unknown) { Line 'Prometheus' 'PENDING' "first scrape not done yet ($up/$all up); re-run in 15 s" }
+  else { Line 'Prometheus' $(if ($up -eq $all) { 'HEALTHY' } else { 'DEGRADED' }) "targets up $up/$all $(if($down){"(down: $down)"})" }
 } else { Line 'Prometheus' 'DOWN' '' }
 
 $g = Get-Json 'http://127.0.0.1:3000/api/health'

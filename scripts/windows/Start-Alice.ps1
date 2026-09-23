@@ -20,8 +20,12 @@ Start-Owned 'qdrant' (Join-Path $Bin "qdrant-$($q.ver)\qdrant.exe") @() @{
 
 # 3. windows_exporter (host metrics; user process, loopback)
 $w = $Versions.winexp
+New-Item -ItemType Directory -Force (Join-Path $RunDir 'textfile') | Out-Null
 Start-Owned 'windows_exporter' (Join-Path $Bin "winexp-$($w.ver)\windows_exporter-$($w.ver)-amd64.exe") @(
-  '--web.listen-address=127.0.0.1:9182', '--collectors.enabled=cpu,memory,logical_disk,net,os,system,physical_disk')
+  '--web.listen-address=127.0.0.1:9182', '--collectors.enabled=cpu,memory,logical_disk,net,os,system,physical_disk,process,textfile',
+  # Only the stack's own binaries (low cardinality); Grafana joins them with the PID manifest via alice_native_process.
+  '--collector.process.include="^(python|ollama|llama-server|qdrant|prometheus|grafana|gpx_.*|windows_exporter.*)$"',
+  "--collector.textfile.directories=`"$(Join-Path $RunDir 'textfile')`"")
 
 # 4. Alice API (+ metrics on 9101)
 $py = Join-Path $Root '.venv\Scripts\python.exe'
@@ -43,12 +47,22 @@ Start-Owned 'grafana' (Join-Path $gdir 'bin\grafana.exe') @('server', '--homepat
   GF_AUTH_ANONYMOUS_ENABLED = 'false'; GF_USERS_ALLOW_SIGN_UP = 'false'; GF_SECURITY_COOKIE_SECURE = 'false'
   GF_ANALYTICS_REPORTING_ENABLED = 'false'; GF_ANALYTICS_CHECK_FOR_UPDATES = 'false'; GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES = 'false'
   GF_NEWS_NEWS_FEED_ENABLED = 'false'; GF_SERVER_ROOT_URL = 'http://127.0.0.1:3000/'
+  # Optional: tailnet host:port of the Serve entry for Grafana (docs/REMOTE-DEMO.md), so its login POST passes the origin check.
+  GF_SECURITY_CSRF_TRUSTED_ORIGINS = "$($cfg['ALICE_GRAFANA_TRUSTED_ORIGINS'])"
 }
 
 # Wait for health, then ensure the tailnet Viewer account (idempotent; admin creds never leave this script).
 $null = Wait-Http 'http://127.0.0.1:6333/healthz' 30
 $null = Wait-Http 'http://127.0.0.1:8000/healthz' 60
 $null = Wait-Http 'http://127.0.0.1:9090/-/ready' 30
+# Right after a (re)start Prometheus lists 0 targets, then "unknown" until the first scrape (15 s):
+# wait (max 40 s) until every target has been scraped successfully, so Status does not print "0/0" or a stale "down".
+$deadline = (Get-Date).AddSeconds(40)
+do {
+  $tg = try { @((Invoke-RestMethod 'http://127.0.0.1:9090/api/v1/targets?state=active' -TimeoutSec 3).data.activeTargets) } catch { @() }
+  if ($tg.Count -gt 0 -and -not ($tg | Where-Object health -ne 'up')) { break }   # a target restarted just now may be 'down' until its next scrape
+  Start-Sleep -Seconds 1
+} while ((Get-Date) -lt $deadline)
 if (Wait-Http 'http://127.0.0.1:3000/api/health' 60) {
   $pair = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes("admin:$($cfg['GRAFANA_ADMIN_PASSWORD'])"))
   $h = @{ Authorization = "Basic $pair" }

@@ -1,0 +1,10 @@
+2026-09-20T09:00:01-03:00 INFO ingestion worker iniciado (dataset sintético de demostración)
+2026-09-20T09:00:05-03:00 INFO documento recibido id=demo-001 tipo=pdf paginas=2
+2026-09-20T09:00:07-03:00 INFO 6 fragmentos generados para demo-001
+2026-09-20T09:01:12-03:00 WARN extracción lenta: 3.4 s para demo-002 (umbral 2 s)
+2026-09-20T09:02:40-03:00 ERROR timeout al generar embeddings para demo-003 tras 30 s
+2026-09-20T09:02:41-03:00 INFO reintento 1 de embeddings para demo-003
+2026-09-20T09:03:15-03:00 ERROR timeout al generar embeddings para demo-004 tras 30 s
+2026-09-20T09:04:02-03:00 ERROR PDF cifrado no soportado: demo-005 (se requiere contraseña)
+2026-09-20T09:04:30-03:00 WARN llamada de prueba con token=demo-no-es-un-secreto-123456 rechazada por política
+2026-09-20T09:05:00-03:00 INFO ingestión finalizada: 3 listos, 2 fallidos

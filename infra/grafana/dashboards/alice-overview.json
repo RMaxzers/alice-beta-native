@@ -1,0 +1,1492 @@
+{
+ "uid": "alice-overview",
+ "title": "ALICE / OVERVIEW",
+ "tags": [
+  "alice",
+  "beta-0.1"
+ ],
+ "timezone": "America/Santiago",
+ "schemaVersion": 39,
+ "version": 1,
+ "editable": false,
+ "graphTooltip": 1,
+ "refresh": "30s",
+ "time": {
+  "from": "now-30m",
+  "to": "now"
+ },
+ "description": "Alice Beta 0.1: host Windows, GPU, peticiones, latencia, costes, procesos nativos y salud. Fuente única: Prometheus local (uid alice-prometheus).",
+ "templating": {
+  "list": [
+   {
+    "type": "interval",
+    "name": "interval",
+    "label": "Intervalo",
+    "query": "1m,5m,15m,30m,1h",
+    "current": {
+     "text": "5m",
+     "value": "5m"
+    },
+    "auto": false,
+    "hide": 0
+   }
+  ]
+ },
+ "panels": [
+  {
+   "id": 1,
+   "type": "row",
+   "title": "Salud: dependencias y scrapes",
+   "collapsed": false,
+   "gridPos": {
+    "x": 0,
+    "y": 0,
+    "w": 24,
+    "h": 1
+   },
+   "panels": []
+  },
+  {
+   "id": 2,
+   "type": "stat",
+   "title": "Dependencias (health check real de Alice)",
+   "description": "Fuente: alice_dependency_up (API de Alice, 127.0.0.1:9101). 1 = prueba funcional superada. openrouter/web/docker en 0 = no probados o deshabilitados. Sin datos si la API no responde.",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "alice-prometheus"
+   },
+   "gridPos": {
+    "x": 0,
+    "y": 1,
+    "w": 14,
+    "h": 6
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "alice-prometheus"
+     },
+     "expr": "alice_dependency_up",
+     "legendFormat": "{{dependency}}",
+     "instant": true,
+     "range": false
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "noValue": "sin datos",
+     "mappings": [
+      {
+       "type": "value",
+       "options": {
+        "0": {
+         "text": "DOWN",
+         "color": "red"
+        },
+        "1": {
+         "text": "UP",
+         "color": "green"
+        }
+       }
+      }
+     ],
+     "color": {
+      "mode": "thresholds"
+     },
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "red",
+        "value": null
+       },
+       {
+        "color": "green",
+        "value": 1
+       }
+      ]
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "colorMode": "background",
+    "graphMode": "none",
+    "textMode": "value_and_name",
+    "orientation": "horizontal"
+   }
+  },
+  {
+   "id": 3,
+   "type": "stat",
+   "title": "Scrapes de Prometheus (up por job)",
+   "description": "Métrica sintética up de Prometheus (127.0.0.1:9090): un target por componente nativo.",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "alice-prometheus"
+   },
+   "gridPos": {
+    "x": 14,
+    "y": 1,
+    "w": 10,
+    "h": 6
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "alice-prometheus"
+     },
+     "expr": "up",
+     "legendFormat": "{{job}}",
+     "instant": true,
+     "range": false
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "noValue": "sin datos",
+     "mappings": [
+      {
+       "type": "value",
+       "options": {
+        "0": {
+         "text": "DOWN",
+         "color": "red"
+        },
+        "1": {
+         "text": "UP",
+         "color": "green"
+        }
+       }
+      }
+     ],
+     "color": {
+      "mode": "thresholds"
+     },
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "red",
+        "value": null
+       },
+       {
+        "color": "green",
+        "value": 1
+       }
+      ]
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "colorMode": "background",
+    "graphMode": "none",
+    "textMode": "value_and_name",
+    "orientation": "horizontal"
+   }
+  },
+  {
+   "id": 4,
+   "type": "row",
+   "title": "Host Windows (windows_exporter 127.0.0.1:9182)",
+   "collapsed": false,
+   "gridPos": {
+    "x": 0,
+    "y": 7,
+    "w": 24,
+    "h": 1
+   },
+   "panels": []
+  },
+  {
+   "id": 5,
+   "type": "timeseries",
+   "title": "CPU del host Windows (% del host, todos los núcleos)",
+   "description": "Porcentaje del host completo, no de un núcleo. Fuente: windows_cpu_time_total.",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "alice-prometheus"
+   },
+   "gridPos": {
+    "x": 0,
+    "y": 8,
+    "w": 8,
+    "h": 7
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "alice-prometheus"
+     },
+     "expr": "100 * (1 - avg(rate(windows_cpu_time_total{mode=\"idle\"}[$__rate_interval])))",
+     "legendFormat": "CPU host Windows %",
+     "instant": false,
+     "range": true
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "noValue": "sin datos",
+     "unit": "percent",
+     "min": 0,
+     "max": 100
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   }
+  },
+  {
+   "id": 6,
+   "type": "timeseries",
+   "title": "RAM del host Windows",
+   "description": "usada = total - disponible. Fuente: windows_memory_*.",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "alice-prometheus"
+   },
+   "gridPos": {
+    "x": 8,
+    "y": 8,
+    "w": 8,
+    "h": 7
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "alice-prometheus"
+     },
+     "expr": "windows_memory_physical_total_bytes - windows_memory_available_bytes",
+     "legendFormat": "usada",
+     "instant": false,
+     "range": true
+    },
+    {
+     "refId": "B",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "alice-prometheus"
+     },
+     "expr": "windows_memory_available_bytes",
+     "legendFormat": "disponible",
+     "instant": false,
+     "range": true
+    },
+    {
+     "refId": "C",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "alice-prometheus"
+     },
+     "expr": "windows_memory_physical_total_bytes",
+     "legendFormat": "total",
+     "instant": false,
+     "range": true
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "noValue": "sin datos",
+     "unit": "bytes"
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   }
+  },
+  {
+   "id": 7,
+   "type": "stat",
+   "title": "Host Windows: disco C: libre y RAM disponible",
+   "description": "",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "alice-prometheus"
+   },
+   "gridPos": {
+    "x": 16,
+    "y": 8,
+    "w": 8,
+    "h": 7
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "alice-prometheus"
+     },
+     "expr": "windows_logical_disk_free_bytes{volume=\"C:\"}",
+     "legendFormat": "C: libre",
+     "instant": true,
+     "range": false
+    },
+    {
+     "refId": "B",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "alice-prometheus"
+     },
+     "expr": "windows_memory_available_bytes",
+     "legendFormat": "RAM disponible",
+     "instant": true,
+     "range": false
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "noValue": "sin datos",
+     "unit": "bytes"
+    },
+    "overrides": []
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "colorMode": "none",
+    "graphMode": "none",
+    "textMode": "value_and_name",
+    "orientation": "horizontal"
+   }
+  },
+  {
+   "id": 8,
+   "type": "row",
+   "title": "GPU (nvidia-smi muestreado por Alice; sin series si la API está caída, D12)",
+   "collapsed": false,
+   "gridPos": {
+    "x": 0,
+    "y": 15,
+    "w": 24,
+    "h": 1
+   },
+   "panels": []
+  },
+  {
+   "id": 9,
+   "type": "timeseries",
+   "title": "GPU: utilización",
+   "description": "",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "alice-prometheus"
+   },
+   "gridPos": {
+    "x": 0,
+    "y": 16,
+    "w": 6,
+    "h": 7
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "alice-prometheus"
+     },
+     "expr": "alice_gpu_utilization_percent",
+     "legendFormat": "GPU {{gpu}}",
+     "instant": false,
+     "range": true
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "noValue": "sin datos",
+     "unit": "percent",
+     "min": 0,
+     "max": 100
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   }
+  },
+  {
+   "id": 10,
+   "type": "timeseries",
+   "title": "GPU: VRAM usada / total",
+   "description": "",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "alice-prometheus"
+   },
+   "gridPos": {
+    "x": 6,
+    "y": 16,
+    "w": 6,
+    "h": 7
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "alice-prometheus"
+     },
+     "expr": "alice_gpu_memory_used_bytes",
+     "legendFormat": "usada GPU {{gpu}}",
+     "instant": false,
+     "range": true
+    },
+    {
+     "refId": "B",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "alice-prometheus"
+     },
+     "expr": "alice_gpu_memory_total_bytes",
+     "legendFormat": "total GPU {{gpu}}",
+     "instant": false,
+     "range": true
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "noValue": "sin datos",
+     "unit": "bytes"
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   }
+  },
+  {
+   "id": 11,
+   "type": "timeseries",
+   "title": "GPU: temperatura",
+   "description": "",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "alice-prometheus"
+   },
+   "gridPos": {
+    "x": 12,
+    "y": 16,
+    "w": 6,
+    "h": 7
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "alice-prometheus"
+     },
+     "expr": "alice_gpu_temperature_celsius",
+     "legendFormat": "GPU {{gpu}}",
+     "instant": false,
+     "range": true
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "noValue": "sin datos",
+     "unit": "celsius"
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   }
+  },
+  {
+   "id": 12,
+   "type": "timeseries",
+   "title": "VRAM por modelo Ollama cargado",
+   "description": "/api/ps de Ollama leído por Alice. Sin datos = ningún modelo cargado ahora.",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "alice-prometheus"
+   },
+   "gridPos": {
+    "x": 18,
+    "y": 16,
+    "w": 6,
+    "h": 7
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "alice-prometheus"
+     },
+     "expr": "alice_ollama_model_loaded_vram_bytes",
+     "legendFormat": "{{model}}",
+     "instant": false,
+     "range": true
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "noValue": "sin datos",
+     "unit": "bytes"
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   }
+  },
+  {
+   "id": 13,
+   "type": "row",
+   "title": "Peticiones de usuario (no intentos de proveedor)",
+   "collapsed": false,
+   "gridPos": {
+    "x": 0,
+    "y": 23,
+    "w": 24,
+    "h": 1
+   },
+   "panels": []
+  },
+  {
+   "id": 14,
+   "type": "timeseries",
+   "title": "Peticiones por ruta (cada $interval)",
+   "description": "increase() sobre el contador; sin datos = ninguna petición desde el arranque de la API o API caída.",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "alice-prometheus"
+   },
+   "gridPos": {
+    "x": 0,
+    "y": 24,
+    "w": 8,
+    "h": 7
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "alice-prometheus"
+     },
+     "expr": "sum by (route) (increase(alice_requests_total[$interval]))",
+     "legendFormat": "{{route}}",
+     "instant": false,
+     "range": true
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "noValue": "sin datos",
+     "unit": "short",
+     "custom": {
+      "drawStyle": "bars",
+      "fillOpacity": 60,
+      "stacking": {
+       "mode": "normal"
+      }
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   }
+  },
+  {
+   "id": 15,
+   "type": "bargauge",
+   "title": "Distribución de rutas (rango del dashboard)",
+   "description": "Barras horizontales ordenadas (no circular: las rutas se comparan mejor por longitud). Un solo color: la etiqueta identifica la ruta.",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "alice-prometheus"
+   },
+   "gridPos": {
+    "x": 8,
+    "y": 24,
+    "w": 8,
+    "h": 7
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "alice-prometheus"
+     },
+     "expr": "sort_desc(sum by (route) (increase(alice_requests_total[$__range])))",
+     "legendFormat": "{{route}}",
+     "instant": true,
+     "range": false
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "noValue": "sin datos",
+     "unit": "short",
+     "color": {
+      "mode": "fixed",
+      "fixedColor": "blue"
+     },
+     "min": 0
+    },
+    "overrides": []
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "values": false
+    },
+    "orientation": "horizontal",
+    "displayMode": "basic",
+    "showUnfilled": true,
+    "valueMode": "text"
+   }
+  },
+  {
+   "id": 16,
+   "type": "stat",
+   "title": "Local vs cloud (rango del dashboard)",
+   "description": "local = ollama + local-tools; cloud = cualquier otro proveedor (openrouter). Sin datos = ninguna petición de ese tipo.",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "alice-prometheus"
+   },
+   "gridPos": {
+    "x": 16,
+    "y": 24,
+    "w": 8,
+    "h": 7
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "alice-prometheus"
+     },
+     "expr": "sum(increase(alice_requests_total{provider=~\"ollama|local-tools\"}[$__range]))",
+     "legendFormat": "local",
+     "instant": true,
+     "range": false
+    },
+    {
+     "refId": "B",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "alice-prometheus"
+     },
+     "expr": "sum(increase(alice_requests_total{provider!~\"ollama|local-tools|none\"}[$__range]))",
+     "legendFormat": "cloud",
+     "instant": true,
+     "range": false
+    },
+    {
+     "refId": "C",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "alice-prometheus"
+     },
+     "expr": "sum(increase(alice_requests_total{provider=\"none\"}[$__range]))",
+     "legendFormat": "sin proveedor (bloqueada o fallida)",
+     "instant": true,
+     "range": false
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "noValue": "sin datos",
+     "unit": "short"
+    },
+    "overrides": []
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "colorMode": "none",
+    "graphMode": "none",
+    "textMode": "value_and_name",
+    "orientation": "horizontal"
+   }
+  },
+  {
+   "id": 17,
+   "type": "row",
+   "title": "Latencia, errores y cola",
+   "collapsed": false,
+   "gridPos": {
+    "x": 0,
+    "y": 31,
+    "w": 24,
+    "h": 1
+   },
+   "panels": []
+  },
+  {
+   "id": 18,
+   "type": "timeseries",
+   "title": "Latencia extremo a extremo p50 / p95",
+   "description": "histogram_quantile sobre rate() del histograma; nunca promedio de percentiles. Sin datos = sin peticiones en la ventana $interval.",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "alice-prometheus"
+   },
+   "gridPos": {
+    "x": 0,
+    "y": 32,
+    "w": 8,
+    "h": 7
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "alice-prometheus"
+     },
+     "expr": "histogram_quantile(0.5, sum by (le) (rate(alice_request_duration_seconds_bucket[$interval])))",
+     "legendFormat": "p50",
+     "instant": false,
+     "range": true
+    },
+    {
+     "refId": "B",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "alice-prometheus"
+     },
+     "expr": "histogram_quantile(0.95, sum by (le) (rate(alice_request_duration_seconds_bucket[$interval])))",
+     "legendFormat": "p95",
+     "instant": false,
+     "range": true
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "noValue": "sin datos",
+     "unit": "s"
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   }
+  },
+  {
+   "id": 19,
+   "type": "timeseries",
+   "title": "p95 por etapa: cola, routing, retrieval, proveedor",
+   "description": "Separa espera, routing, retrieval y proveedor para no atribuir toda la lentitud al modelo.",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "alice-prometheus"
+   },
+   "gridPos": {
+    "x": 8,
+    "y": 32,
+    "w": 8,
+    "h": 7
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "alice-prometheus"
+     },
+     "expr": "histogram_quantile(0.95, sum by (le) (rate(alice_queue_wait_seconds_bucket[$interval])))",
+     "legendFormat": "espera en cola",
+     "instant": false,
+     "range": true
+    },
+    {
+     "refId": "B",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "alice-prometheus"
+     },
+     "expr": "histogram_quantile(0.95, sum by (le) (rate(alice_routing_duration_seconds_bucket[$interval])))",
+     "legendFormat": "routing",
+     "instant": false,
+     "range": true
+    },
+    {
+     "refId": "C",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "alice-prometheus"
+     },
+     "expr": "histogram_quantile(0.95, sum by (le) (rate(alice_rag_retrieval_duration_seconds_bucket[$interval])))",
+     "legendFormat": "retrieval RAG",
+     "instant": false,
+     "range": true
+    },
+    {
+     "refId": "D",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "alice-prometheus"
+     },
+     "expr": "histogram_quantile(0.95, sum by (le, provider) (rate(alice_provider_request_duration_seconds_bucket[$interval])))",
+     "legendFormat": "proveedor {{provider}}",
+     "instant": false,
+     "range": true
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "noValue": "sin datos",
+     "unit": "s"
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   }
+  },
+  {
+   "id": 20,
+   "type": "timeseries",
+   "title": "Errores, peticiones no OK y egress bloqueado (cada $interval)",
+   "description": "Estos contadores solo existen tras su primer evento: sin datos = ningún evento desde el arranque de la API (o API caída).",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "alice-prometheus"
+   },
+   "gridPos": {
+    "x": 16,
+    "y": 32,
+    "w": 8,
+    "h": 7
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "alice-prometheus"
+     },
+     "expr": "sum by (component) (increase(alice_errors_total[$interval]))",
+     "legendFormat": "error {{component}}",
+     "instant": false,
+     "range": true
+    },
+    {
+     "refId": "B",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "alice-prometheus"
+     },
+     "expr": "sum by (route, status) (increase(alice_requests_total{status!=\"ok\"}[$interval]))",
+     "legendFormat": "{{route}} {{status}}",
+     "instant": false,
+     "range": true
+    },
+    {
+     "refId": "C",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "alice-prometheus"
+     },
+     "expr": "sum by (reason) (increase(alice_egress_blocked_total[$interval]))",
+     "legendFormat": "egress bloqueado {{reason}}",
+     "instant": false,
+     "range": true
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "noValue": "sin datos",
+     "unit": "short"
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   }
+  },
+  {
+   "id": 21,
+   "type": "timeseries",
+   "title": "Cola de generación local",
+   "description": "",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "alice-prometheus"
+   },
+   "gridPos": {
+    "x": 0,
+    "y": 39,
+    "w": 12,
+    "h": 7
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "alice-prometheus"
+     },
+     "expr": "alice_queue_depth",
+     "legendFormat": "peticiones en espera",
+     "instant": false,
+     "range": true
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "noValue": "sin datos",
+     "unit": "short"
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   }
+  },
+  {
+   "id": 22,
+   "type": "timeseries",
+   "title": "Intentos de proveedor por estado (cada $interval)",
+   "description": "Incluye reintentos; no son peticiones de usuario.",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "alice-prometheus"
+   },
+   "gridPos": {
+    "x": 12,
+    "y": 39,
+    "w": 12,
+    "h": 7
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "alice-prometheus"
+     },
+     "expr": "sum by (provider, status) (increase(alice_provider_attempts_total[$interval]))",
+     "legendFormat": "{{provider}} {{status}}",
+     "instant": false,
+     "range": true
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "noValue": "sin datos",
+     "unit": "short"
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   }
+  },
+  {
+   "id": 23,
+   "type": "row",
+   "title": "Tokens y costes",
+   "collapsed": false,
+   "gridPos": {
+    "x": 0,
+    "y": 46,
+    "w": 24,
+    "h": 1
+   },
+   "panels": []
+  },
+  {
+   "id": 24,
+   "type": "stat",
+   "title": "Tokens (rango del dashboard)",
+   "description": "Tokens informados por el proveedor (in = prompt, out = respuesta).",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "alice-prometheus"
+   },
+   "gridPos": {
+    "x": 0,
+    "y": 47,
+    "w": 8,
+    "h": 7
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "alice-prometheus"
+     },
+     "expr": "sum by (provider, direction) (increase(alice_provider_tokens_total[$__range]))",
+     "legendFormat": "{{provider}} {{direction}}",
+     "instant": true,
+     "range": false
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "noValue": "sin datos",
+     "unit": "short"
+    },
+    "overrides": []
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "colorMode": "none",
+    "graphMode": "none",
+    "textMode": "value_and_name",
+    "orientation": "horizontal"
+   }
+  },
+  {
+   "id": 25,
+   "type": "stat",
+   "title": "Coste cloud REPORTADO (rango del dashboard)",
+   "description": "Solo importes reportados por el proveedor. Sin datos = ninguna llamada cloud contabilizada desde el arranque de la API.",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "alice-prometheus"
+   },
+   "gridPos": {
+    "x": 8,
+    "y": 47,
+    "w": 8,
+    "h": 7
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "alice-prometheus"
+     },
+     "expr": "sum by (provider, model_alias) (increase(alice_provider_cost_usd_total[$__range]))",
+     "legendFormat": "{{provider}} {{model_alias}}",
+     "instant": true,
+     "range": false
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "noValue": "sin datos",
+     "unit": "currencyUSD",
+     "decimals": 4
+    },
+    "overrides": []
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "colorMode": "none",
+    "graphMode": "none",
+    "textMode": "value_and_name",
+    "orientation": "horizontal"
+   }
+  },
+  {
+   "id": 26,
+   "type": "text",
+   "title": "Estimado / reportado / desconocido",
+   "gridPos": {
+    "x": 16,
+    "y": 47,
+    "w": 8,
+    "h": 7
+   },
+   "options": {
+    "mode": "markdown",
+    "content": "Prometheus solo recibe costes **reportados** por el proveedor. Los costes **estimados** y las llamadas con coste **desconocido** están en el ledger de Alice (SQLite, tabla `ledger`), visibles en la UI (Observabilidad) o preguntando «¿Cuánto gasté hoy?». Prometheus sirve para tendencias, no como libro contable."
+   }
+  },
+  {
+   "id": 27,
+   "type": "row",
+   "title": "Procesos nativos de Alice (windows_exporter + manifiesto storage/run)",
+   "collapsed": false,
+   "gridPos": {
+    "x": 0,
+    "y": 54,
+    "w": 24,
+    "h": 1
+   },
+   "panels": []
+  },
+  {
+   "id": 28,
+   "type": "timeseries",
+   "title": "Memoria privada por componente",
+   "description": "Working set privado de los PIDs del manifiesto y sus hijos directos. ollama = instancia reutilizada (owned=false).",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "alice-prometheus"
+   },
+   "gridPos": {
+    "x": 0,
+    "y": 55,
+    "w": 8,
+    "h": 7
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "alice-prometheus"
+     },
+     "expr": "sum by (component) (windows_process_working_set_private_bytes * on(process_id) group_left(component) alice_native_process)",
+     "legendFormat": "{{component}}",
+     "instant": false,
+     "range": true
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "noValue": "sin datos",
+     "unit": "bytes"
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   }
+  },
+  {
+   "id": 29,
+   "type": "timeseries",
+   "title": "CPU por componente (% del host)",
+   "description": "Porcentaje del host completo (tiempo de CPU / núcleos lógicos).",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "alice-prometheus"
+   },
+   "gridPos": {
+    "x": 8,
+    "y": 55,
+    "w": 8,
+    "h": 7
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "alice-prometheus"
+     },
+     "expr": "100 * sum by (component) (rate(windows_process_cpu_time_total[$__rate_interval]) * on(process_id) group_left(component) alice_native_process) / scalar(count(windows_cpu_time_total{mode=\"idle\"}))",
+     "legendFormat": "{{component}}",
+     "instant": false,
+     "range": true
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "noValue": "sin datos",
+     "unit": "percent"
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   }
+  },
+  {
+   "id": 30,
+   "type": "stat",
+   "title": "Procesos vivos por componente",
+   "description": "PIDs del manifiesto que windows_exporter ve vivos. Sin datos para un componente = no está en marcha o el manifiesto no se refrescó (Status-Alice.ps1 lo refresca).",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "alice-prometheus"
+   },
+   "gridPos": {
+    "x": 16,
+    "y": 55,
+    "w": 8,
+    "h": 7
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "alice-prometheus"
+     },
+     "expr": "count by (component) (windows_process_start_time_seconds_timestamp * on(process_id) group_left(component) alice_native_process)",
+     "legendFormat": "{{component}}",
+     "instant": true,
+     "range": false
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "noValue": "sin datos",
+     "unit": "short"
+    },
+    "overrides": []
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "colorMode": "none",
+    "graphMode": "none",
+    "textMode": "value_and_name",
+    "orientation": "horizontal"
+   }
+  },
+  {
+   "id": 31,
+   "type": "row",
+   "title": "Docker (DESHABILITADO)",
+   "collapsed": false,
+   "gridPos": {
+    "x": 0,
+    "y": 62,
+    "w": 24,
+    "h": 1
+   },
+   "panels": []
+  },
+  {
+   "id": 32,
+   "type": "text",
+   "title": "Docker",
+   "gridPos": {
+    "x": 0,
+    "y": 63,
+    "w": 16,
+    "h": 4
+   },
+   "options": {
+    "mode": "markdown",
+    "content": "**Deshabilitado.** No hay daemon Docker en este host (decisiones D1/D2). `DockerAdapter` está implementado y probado con fixtures; **host pendiente**. Aquí no se muestran contenedores simulados. Ver `docs/DOCKER-INTEGRATION.md`."
+   }
+  },
+  {
+   "id": 33,
+   "type": "stat",
+   "title": "Estado del adapter Docker",
+   "description": "",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "alice-prometheus"
+   },
+   "gridPos": {
+    "x": 16,
+    "y": 63,
+    "w": 8,
+    "h": 4
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "alice-prometheus"
+     },
+     "expr": "alice_dependency_up{dependency=\"docker\"}",
+     "legendFormat": "docker",
+     "instant": true,
+     "range": false
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "noValue": "sin datos",
+     "mappings": [
+      {
+       "type": "value",
+       "options": {
+        "0": {
+         "text": "DESHABILITADO / sin host",
+         "color": "text"
+        },
+        "1": {
+         "text": "UP",
+         "color": "green"
+        }
+       }
+      }
+     ]
+    },
+    "overrides": []
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "colorMode": "none",
+    "graphMode": "none",
+    "textMode": "value_and_name",
+    "orientation": "horizontal"
+   }
+  }
+ ]
+}

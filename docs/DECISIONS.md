@@ -1,16 +1,18 @@
-# Decisions
+# Decisiones
 
-| # | Date | Decision | Why | Rejected |
+| # | Fecha | Decisión | Motivo | Descartado |
 |---|---|---|---|---|
-| D1 | 2026-09-22 | Qdrant, Prometheus, Grafana and windows_exporter run as **native Windows binaries** bound to 127.0.0.1. No WSL2/Docker in Beta 0.1 | WSL not installed; enabling it turns on the hypervisor and needs a reboot. On this machine the hypervisor was a boot-loop suspect, and there are recent hard resets. Native binaries also avoid the ~1-2 GB WSL VM overhead. User approved | WSL2 + Docker Engine; Docker Desktop |
-| D2 | 2026-09-22 | DockerAdapter is implemented and tested against a fake runner; runtime status is `unavailable: Docker not installed` | Follows D1; the adapter is ready for a later WSL2/Docker phase | Faking container data |
-| D3 | 2026-09-22 | Keep Ollama native on Windows; reuse `qwen3:4b-instruct-2507-q4_K_M` for local-general and local-code | Already installed and ~3-4B as the spec suggests; avoid extra downloads | Separate code model (VRAM) |
-| D4 | 2026-09-22 | Embeddings: `bge-m3` via Ollama | Multilingual (Spanish), local, MIT license | nomic-embed-text (English-centric) |
-| D5 | 2026-09-22 | Router = rules → semantic similarity → qwen3 JSON-schema classifier only for ambiguous cases | No extra classifier model in VRAM; deterministic policies take precedence | A dedicated classifier model |
-| D6 | 2026-09-22 | OpenRouter and Tavily keys are copied from Hermes' `.env` into `alice/.env` (ACL for the current user only) | User approved; Alice must not depend on Hermes at runtime | Reading Hermes' `.env` at runtime |
-| D7 | 2026-09-22 | Budget USD 0.05/request and 1.00/day | User approved | — |
-| D8 | 2026-09-22 | Remote: Tailscale Serve `https=8443 -> 127.0.0.1:8000`; existing `/ -> :8080` rule untouched | User approved; preserves Open WebUI publishing | Replacing the root rule |
-| D9 | 2026-09-22 | Alice metrics on a separate loopback port (9101) | `/metrics` can never be reachable through the Serve entry | Path filtering on the same port |
-| D10 | 2026-09-22 | HermesAdapter is health-only and DISABLED by default | The Hermes profile enables terminal/code execution and cloud auxiliary models; Alice cannot enforce its egress policy on them | Routing research through Hermes |
-| D11 | 2026-09-22 | Backend Python 3.12 in a uv-managed venv | Python 3.14 is new; wheel availability for native deps | System Python 3.14 |
-| D12 | 2026-09-22 | GPU metrics are sampled by Alice from `nvidia-smi` (fixed argv) | No official NVIDIA exporter for Windows here; smallest thing that works. Limitation: no GPU series while Alice is down | DCGM (Linux/datacenter only) |
+| D1 | 2026-09-22 | Qdrant, Prometheus, Grafana y windows_exporter se ejecutan como **binarios nativos de Windows** enlazados a 127.0.0.1. Sin WSL2/Docker en Beta 0.1 | WSL no está instalado; activarlo enciende el hipervisor y exige reiniciar. En esta máquina el hipervisor era sospechoso de un bucle de arranque y hay reinicios forzados recientes. Los binarios nativos evitan además los ~1-2 GB de la VM de WSL. Aprobado por el usuario | WSL2 + Docker Engine; Docker Desktop |
+| D2 | 2026-09-22 | DockerAdapter implementado y probado contra un runner falso; estado en ejecución `unavailable: Docker not installed` | Consecuencia de D1; el adapter queda listo para una fase posterior con WSL2/Docker | Simular datos de contenedores |
+| D3 | 2026-09-22 | Ollama nativo en Windows; se reutiliza `qwen3:4b-instruct-2507-q4_K_M` para local-general y local-code | Ya estaba instalado y ronda los 3-4B que sugiere la especificación; evita descargas extra | Modelo de código separado (VRAM) |
+| D4 | 2026-09-22 | Embeddings: `bge-m3` vía Ollama | Multilingüe (español), local, licencia MIT | nomic-embed-text (centrado en inglés) |
+| D5 | 2026-09-22 | Router = reglas → similitud semántica → clasificador qwen3 con esquema JSON solo para casos ambiguos | Sin modelo clasificador adicional en VRAM; las políticas deterministas tienen prioridad | Un modelo clasificador dedicado |
+| D6 | 2026-09-22 | Las claves de OpenRouter y Tavily se copian del `.env` de Hermes a `alice/.env` (ACL solo para el usuario actual) | Aprobado por el usuario; Alice no debe depender de Hermes en tiempo de ejecución | Leer el `.env` de Hermes en ejecución |
+| D7 | 2026-09-22 | Presupuesto de 0,05 USD por petición y 1,00 USD diarios | Aprobado por el usuario | — |
+| D8 | 2026-09-22 | Remoto: Tailscale Serve `https=8443 -> 127.0.0.1:8000`; la regla existente `/ -> :8080` no se toca | Aprobado por el usuario; conserva la publicación de Open WebUI | Reemplazar la regla raíz |
+| D9 | 2026-09-22 | Métricas de Alice en un puerto loopback aparte (9101) | `/metrics` nunca puede alcanzarse a través de la entrada de Serve | Filtrar rutas en el mismo puerto |
+| D10 | 2026-09-22 | HermesAdapter solo comprueba salud y está DESHABILITADO por defecto | El perfil de Hermes habilita terminal/ejecución de código y modelos auxiliares cloud; Alice no puede imponer su política de egress sobre ellos | Enrutar la investigación a través de Hermes |
+| D11 | 2026-09-22 | Backend en Python 3.12 dentro de un venv gestionado por uv | Python 3.14 es reciente; disponibilidad de wheels para dependencias nativas | Python 3.14 del sistema |
+| D12 | 2026-09-22 | Las métricas de GPU las muestrea Alice con `nvidia-smi` (argv fijo) | No hay exporter oficial de NVIDIA para Windows aquí; es lo mínimo que funciona. Limitación: sin series de GPU mientras Alice está caída | DCGM (solo Linux/centros de datos) |
+| D13 | 2026-09-22 | Procesos nativos en Grafana: colector `process` de windows_exporter filtrado por nombre + colector `textfile` con `alice_native_process{component,owned,process_id}`, escrito a partir de los manifiestos `storage\run\*.json` | Identidad por PID + hora de inicio + ejecutable, sin exponer líneas de comando; cardinalidad baja | Exportar todos los procesos; exponer cmdline |
+| D14 | 2026-09-22 | Backup consistente por defecto deteniendo el proceso propio `alice-api` (pausa global de mutaciones). El modo `-Online` queda documentado como consistente solo por almacén | La API aún no tiene un flag de mantenimiento | Copiar en caliente los ficheros de SQLite/Qdrant |

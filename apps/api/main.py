@@ -90,11 +90,15 @@ class Login(BaseModel):
 async def login(body: Login, request: Request):
     st = S(request)
     key = request.headers.get("x-forwarded-for", request.client.host if request.client else "?")
+    # X-Forwarded-For is client-controlled locally; the per-username bucket can't be dodged by rotating it.
+    user_key = "user:" + body.username
     st.sessions.throttle(key)
+    st.sessions.throttle(user_key)
     ok_user = hmac.compare_digest(body.username, st.settings.alice_username)
     ok_pw = hmac.compare_digest(body.password.encode(), st.settings.alice_password.get_secret_value().encode())
     if not (ok_user and ok_pw):
         st.sessions.fail(key)
+        st.sessions.fail(user_key)
         await asyncio.sleep(0.5)
         raise HTTPException(401, "Credenciales inválidas")
     token, csrf = st.sessions.issue(body.username)

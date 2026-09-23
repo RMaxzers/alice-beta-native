@@ -30,12 +30,29 @@ function Test-Http([string]$Url, [int]$TimeoutSec = 3) {
   try { $r = Invoke-WebRequest -Uri $Url -TimeoutSec $TimeoutSec -UseBasicParsing; return $r.StatusCode -lt 400 } catch { return $false }
 }
 
+# --- Process manifest (storageun\<name>.json): pid + start time + executable + logs.
+# A PID is only "ours" if all three still match; a reused PID never gets stopped by mistake.
+function Save-Manifest([string]$Name, $Proc) {
+  [ordered]@{
+    name = $Name; pid = $Proc.Id; exe = $Proc.Path
+    start_utc_ticks = $Proc.StartTime.ToUniversalTime().Ticks; start = $Proc.StartTime.ToString('o')
+    stdout = (Join-Path $LogDir "$Name.out.log"); stderr = (Join-Path $LogDir "$Name.err.log")
+  } | ConvertTo-Json | Set-Content (Join-Path $RunDir "$Name.json") -Encoding utf8
+}
+
 function Get-OwnPid([string]$Name) {
-  $f = Join-Path $RunDir "$Name.pid"
+  $f = Join-Path $RunDir "$Name.json"; $legacy = Join-Path $RunDir "$Name.pid"
+  if (Test-Path $legacy) {
+    # Migrate a pre-manifest PID file only if it still points at a binary inside this project.
+    $p = Get-Process -Id ([int](Get-Content $legacy)) -ErrorAction SilentlyContinue
+    if (-not (Test-Path $f) -and $p -and $p.Path -and $p.Path.StartsWith($Root, [StringComparison]::OrdinalIgnoreCase)) { Save-Manifest $Name $p }
+    Remove-Item $legacy -Force
+  }
   if (-not (Test-Path $f)) { return $null }
-  $id = [int](Get-Content $f)
-  $p = Get-Process -Id $id -ErrorAction SilentlyContinue
-  if ($p) { return $id } else { Remove-Item $f -Force; return $null }
+  $m = Get-Content $f -Raw | ConvertFrom-Json
+  $p = Get-Process -Id $m.pid -ErrorAction SilentlyContinue
+  if ($p -and $p.Path -eq $m.exe -and [math]::Abs($p.StartTime.ToUniversalTime().Ticks - [long]$m.start_utc_ticks) -lt 10000000) { return $p.Id }
+  Remove-Item $f -Force; $null
 }
 
 function Start-Owned([string]$Name, [string]$Exe, [string[]]$ArgList, [hashtable]$Env = @{}, [string]$WorkDir = $Root) {
@@ -44,7 +61,37 @@ function Start-Owned([string]$Name, [string]$Exe, [string[]]$ArgList, [hashtable
   $p = Start-Process -FilePath $Exe -ArgumentList $ArgList -WorkingDirectory $WorkDir -WindowStyle Hidden -PassThru `
         -RedirectStandardOutput (Join-Path $LogDir "$Name.out.log") -RedirectStandardError (Join-Path $LogDir "$Name.err.log")
   foreach ($k in $Env.Keys) { Remove-Item "env:$k" -ErrorAction SilentlyContinue }
-  $p.Id | Set-Content (Join-Path $RunDir "$Name.pid")
+  Save-Manifest $Name (Get-Process -Id $p.Id)
+}
+
+# Kill an owned process and its children (the venv python.exe is a launcher whose child runs the API).
+function Stop-OwnedTree([int]$Id) {
+  & taskkill.exe /PID $Id /T /F 2>&1 | Out-Null
+  Wait-Process -Id $Id -Timeout 10 -ErrorAction SilentlyContinue
+}
+
+# Export owned PIDs (and their direct children) for windows_exporter's textfile collector so Grafana can
+# join windows_process_* on process_id. Ollama is included as owned="false" when it was reused, not started.
+function Write-ProcessMetrics {
+  $dir = Join-Path $RunDir 'textfile'; New-Item -ItemType Directory -Force $dir | Out-Null
+  $all = Get-CimInstance Win32_Process -Property ProcessId, ParentProcessId, Name
+  $rows = @()
+  function Add-Tree([string]$component, [int]$id, [string]$owned) {
+    $Script:rows += "alice_native_process{component=`"$component`",owned=`"$owned`",process_id=`"$id`"} 1"
+    foreach ($c in $all | Where-Object { $_.ParentProcessId -eq $id -and $_.Name -ne 'conhost.exe' }) {
+      $Script:rows += "alice_native_process{component=`"$component`",owned=`"$owned`",process_id=`"$($c.ProcessId)`"} 1"
+    }
+  }
+  $Script:rows = @()
+  foreach ($f in Get-ChildItem $RunDir -Filter *.json) { $id = Get-OwnPid $f.BaseName; if ($id) { Add-Tree $f.BaseName $id 'true' } }
+  if (-not (Get-OwnPid 'ollama')) {
+    $o = Get-NetTCPConnection -LocalPort 11434 -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($o) { Add-Tree 'ollama' $o.OwningProcess 'false' }
+  }
+  $body = @('# HELP alice_native_process Processes of the Alice stack (from storage/run manifests).', '# TYPE alice_native_process gauge') + $Script:rows
+  $tmp = Join-Path $dir 'alice_processes.tmp'
+  Set-Content $tmp $body -Encoding ascii
+  Move-Item $tmp (Join-Path $dir 'alice_processes.prom') -Force
 }
 
 function Wait-Http([string]$Url, [int]$Seconds = 30) {
