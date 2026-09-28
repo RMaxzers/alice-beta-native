@@ -94,13 +94,67 @@ class ChatRequest(BaseModel):
 
 
 class Source(BaseModel):
-    kind: Literal["document", "table", "web", "metric", "log", "fact", "container"]
+    kind: Literal["document", "table", "web", "metric", "log", "fact", "container", "memory"]
     title: str
     location: str | None = None
     url: str | None = None
     privacy: Privacy
     verification: Verification = Verification.UNVERIFIED
     retrieved_at: str | None = None
+
+
+DATE_RX = r"^\d{4}-\d{2}-\d{2}$"
+TIME_RX = r"^([01]\d|2[0-3]):[0-5]\d$"
+
+
+class SourceRef(BaseModel):
+    """What a client may cite. The server resolves it against the owner's data; titles/excerpts never come from the client."""
+    model_config = ConfigDict(extra="forbid")
+    kind: Literal["log", "document"]
+    document_id: str = Field(min_length=1, max_length=64)
+    line: int | None = Field(default=None, ge=1)
+
+
+class TaskIn(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    title: str = Field(min_length=1, max_length=200)
+    description: str = Field(default="", max_length=4000)
+    status: Literal["open", "draft"] = "open"
+    priority: int = Field(default=3, ge=1, le=4)
+    kind: Literal["personal", "work"] = "personal"
+    due_date: str | None = Field(default=None, pattern=DATE_RX)
+    due_time: str | None = Field(default=None, pattern=TIME_RX)
+    privacy: Privacy = Privacy.PRIVATE
+    project: str | None = Field(default=None, max_length=80)
+    parent_id: str | None = Field(default=None, max_length=64)
+    sources: list[SourceRef] = Field(default_factory=list, max_length=10)
+
+
+class TaskPatch(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    version: int = Field(ge=1)
+    title: str | None = Field(default=None, min_length=1, max_length=200)
+    description: str | None = Field(default=None, max_length=4000)
+    status: Literal["draft", "open", "in_progress", "done", "cancelled"] | None = None
+    priority: int | None = Field(default=None, ge=1, le=4)
+    kind: Literal["personal", "work"] | None = None
+    due_date: str | None = Field(default=None, pattern=DATE_RX)
+    due_time: str | None = Field(default=None, pattern=TIME_RX)
+    project: str | None = Field(default=None, max_length=80)
+    parent_id: str | None = Field(default=None, max_length=64)
+
+
+class TaskIntent(BaseModel):
+    """What the local model may extract from the USER's message. Re-validated and decided by policy, never executed as-is."""
+    model_config = ConfigDict(extra="forbid")
+    intent: Literal["create", "complete", "update", "plan", "none"]
+    title: str = Field(default="", max_length=200)
+    target: str = Field(default="", max_length=200)   # existing task referred to (complete/update)
+    due_date: str | None = None                        # YYYY-MM-DD, resolved by the model from today's date
+    due_time: str | None = None
+    priority: int | None = Field(default=None, ge=1, le=4)
+    kind: Literal["personal", "work"] | None = None
+    missing: list[str] = Field(default_factory=list, max_length=5)
 
 
 class EgressPreview(BaseModel):

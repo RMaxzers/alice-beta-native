@@ -27,6 +27,33 @@ Start-Owned 'windows_exporter' (Join-Path $Bin "winexp-$($w.ver)\windows_exporte
   '--collector.process.include="^(python|ollama|llama-server|qdrant|prometheus|grafana|gpx_.*|windows_exporter.*)$"',
   "--collector.textfile.directories=`"$(Join-Path $RunDir 'textfile')`"")
 
+# 3b. Sidecars (loopback only; Alice degrades to "no disponible" if they are down).
+#     hindsight = long-term memory (embedded Postgres, LLM + embeddings from the local Ollama).
+#     pocket-tts = Spanish text-to-speech on CPU. Both are heavy on first start (model downloads).
+$utf8 = @{ PYTHONUTF8 = '1'; PYTHONIOENCODING = 'utf-8' }
+if ($cfg['MEMORY_ENABLED'] -ne 'false') {
+  $hs = Join-Path $Root 'storage\sidecars\hindsight'
+  $hsExe = Join-Path $hs '.venv\Scripts\hindsight-api.exe'
+  if (Test-Path $hsExe) {
+    Start-Owned 'hindsight' $hsExe @('--log-level', 'warning') ($utf8 + @{
+      HINDSIGHT_API_HOST = '127.0.0.1'; HINDSIGHT_API_PORT = '8888'
+      HINDSIGHT_API_LLM_PROVIDER = 'ollama'; HINDSIGHT_API_LLM_MODEL = 'qwen3:4b-instruct-2507-q4_K_M'
+      HINDSIGHT_API_LLM_BASE_URL = 'http://127.0.0.1:11434/v1'; HINDSIGHT_API_LLM_API_KEY = 'ollama'
+      HINDSIGHT_API_EMBEDDINGS_PROVIDER = 'openai'; HINDSIGHT_API_EMBEDDINGS_OPENAI_BASE_URL = 'http://127.0.0.1:11434/v1'
+      HINDSIGHT_API_EMBEDDINGS_OPENAI_MODEL = 'bge-m3'; HINDSIGHT_API_EMBEDDINGS_OPENAI_API_KEY = 'ollama'
+      HINDSIGHT_API_RERANKER_PROVIDER = 'local'; HF_HUB_DISABLE_SYMLINKS_WARNING = '1'
+      # ponytail: pg0 keeps its data under the user profile (Path.home()); Start-Owned clears the env vars it sets,
+      # so overriding USERPROFILE here would break the rest of this script. Move it once Backup-Alice covers memory.
+    }) $hs
+  }
+}
+if ($cfg['VOICE_ENABLED'] -ne 'false') {
+  $tts = Join-Path $env:USERPROFILE '.local\bin\pocket-tts.exe'
+  if (Test-Path $tts) {
+    Start-Owned 'pocket-tts' $tts @('serve', '--host', '127.0.0.1', '--port', '8010', '--language', 'spanish', '--quantize') $utf8
+  }
+}
+
 # 4. Alice API (+ metrics on 9101)
 $py = Join-Path $Root '.venv\Scripts\python.exe'
 Start-Owned 'alice-api' $py @('-m', 'uvicorn', 'apps.api.main:app', '--host', '127.0.0.1', '--port', '8000', '--no-server-header', '--log-level', 'warning')

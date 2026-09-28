@@ -155,6 +155,75 @@ MIGRATIONS: list[str] = [
     ALTER TABLE egress_tickets ADD COLUMN route TEXT;
     ALTER TABLE egress_tickets ADD COLUMN model_alias TEXT;
     """,
+    # 3 — task inbox, executed actions (idempotent, reconcilable) and per-change task events (undo). Additive only.
+    """
+    CREATE TABLE tasks (
+      task_id TEXT PRIMARY KEY,
+      owner TEXT NOT NULL,
+      title TEXT NOT NULL,
+      description TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL CHECK (status IN ('draft','open','in_progress','done','cancelled')),
+      priority INTEGER NOT NULL DEFAULT 3 CHECK (priority BETWEEN 1 AND 4),
+      kind TEXT NOT NULL DEFAULT 'personal' CHECK (kind IN ('personal','work')),
+      due_date TEXT,                      -- local date YYYY-MM-DD in `timezone`
+      due_time TEXT,                      -- HH:MM, optional
+      timezone TEXT NOT NULL,
+      origin TEXT NOT NULL CHECK (origin IN ('user','chat','evidence')),
+      privacy TEXT NOT NULL,
+      project TEXT,
+      parent_id TEXT REFERENCES tasks(task_id) ON DELETE SET NULL,
+      position REAL NOT NULL,
+      sources_json TEXT NOT NULL DEFAULT '[]',
+      action_id TEXT,                     -- action that created it (reconciliation after a crash)
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      completed_at TEXT,
+      version INTEGER NOT NULL DEFAULT 1
+    );
+    CREATE INDEX ix_tasks_owner ON tasks(owner, status, due_date);
+    CREATE INDEX ix_tasks_action ON tasks(action_id);
+
+    CREATE TABLE actions (
+      action_id TEXT PRIMARY KEY,
+      owner TEXT NOT NULL,
+      idem_key TEXT,
+      kind TEXT NOT NULL,
+      level TEXT NOT NULL CHECK (level IN ('C0','C1','C2','C3')),
+      status TEXT NOT NULL CHECK (status IN ('proposed','awaiting_authorization','running','done','failed','needs_review','cancelled')),
+      origin TEXT NOT NULL,
+      summary TEXT NOT NULL,
+      input_json TEXT NOT NULL,
+      task_id TEXT,
+      error TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE UNIQUE INDEX ux_actions_idem ON actions(owner, idem_key) WHERE idem_key IS NOT NULL;
+    CREATE INDEX ix_actions_owner ON actions(owner, created_at);
+
+    CREATE TABLE task_events (
+      event_id INTEGER PRIMARY KEY,
+      task_id TEXT NOT NULL,
+      owner TEXT NOT NULL,
+      action_id TEXT,
+      at TEXT NOT NULL,
+      actor TEXT NOT NULL,
+      origin TEXT NOT NULL,
+      op TEXT NOT NULL,                   -- create|update|reorder|undo
+      before_json TEXT,
+      after_json TEXT,
+      undone_at TEXT
+    );
+    CREATE INDEX ix_task_events_task ON task_events(task_id, event_id);
+    """,
+    # 4 — per-user on/off toggle for local long-term memory (Hindsight sidecar). Additive only.
+    """
+    CREATE TABLE memory_prefs (
+      owner TEXT PRIMARY KEY,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      updated_at TEXT NOT NULL
+    );
+    """,
 ]
 
 _lock = threading.Lock()  # ponytail: single-writer lock for one process; fine for a single-user beta

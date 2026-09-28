@@ -10,18 +10,20 @@ from pathlib import Path
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from apps.api.config import ROOT, load_yaml, settings
 from apps.api.security import COOKIE, SESSION_TTL, external_allowed, is_proxied, require_user
 from apps.api.state import AliceState
-from packages.schemas.models import ChatRequest, Privacy
+from packages.schemas.models import ChatRequest, Privacy, TaskIn, TaskPatch
+from services.tasks.store import TaskError
 from services.ingestion.pipeline import IngestError
 from services.observability import metrics as m
 from services.observability.prometheus import CATALOG, PromError, summarize_series
 from services.observability.samplers import run_samplers
 from services.policies.egress import EgressDenied
 from services.rag.facts import FactIn, add_fact, facts_for
+from services.rag.knowledge_map import document_edges
 
 WEB_DIST = ROOT / "apps" / "web" / "dist"
 # Windows' registry often lacks this type, so FileResponse would send the bundled fonts as text/plain.
@@ -50,6 +52,11 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Alice", version="0.1.0-beta.1", lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
+
+# Feature routers (each module owns its /api/<area> routes and tests).
+from apps.api import routes_knowledge_extra, routes_memory, routes_voice  # noqa: E402
+for _r in (routes_memory.router, routes_voice.router, routes_knowledge_extra.router):
+    app.include_router(_r)
 
 
 @app.middleware("http")
@@ -217,6 +224,20 @@ async def delete_doc(doc_id: str, request: Request, user: str = Depends(require_
     return {"deleted": doc_id}
 
 
+@app.get("/api/knowledge/map")
+async def knowledge_map(request: Request, user: str = Depends(require_user)):
+    """Ready documents of this user as nodes, connected by semantic similarity of their chunk centroids."""
+    st = S(request)
+    rows = st.con.execute("SELECT document_id, original_name, kind, privacy, chunks FROM documents "
+                          "WHERE owner=? AND status='ready' ORDER BY ingested_at", (user,)).fetchall()
+    nodes = [{"id": r["document_id"], "name": r["original_name"], "kind": r["kind"], "privacy": r["privacy"],
+              "chunks": r["chunks"] or 0} for r in rows]
+    if len(nodes) < 2:
+        return {"nodes": nodes, "edges": []}
+    vectors = await st.qdrant.vectors_by_document([n["id"] for n in nodes])
+    return {"nodes": nodes, "edges": document_edges(vectors)}
+
+
 @app.get("/api/datasets")
 async def datasets(request: Request, user: str = Depends(require_user)):
     return [dict(r) for r in S(request).con.execute("SELECT * FROM datasets WHERE owner=?", (user,))]
@@ -238,6 +259,67 @@ async def list_facts(request: Request, subject: str | None = None, user: str = D
         return facts_for(con, subject, user)
     return {"facts": [dict(r) for r in con.execute("SELECT * FROM facts WHERE owner=? ORDER BY created_at DESC LIMIT 200", (user,))],
             "conflict": []}
+
+
+# ------------------------------------------------------------------ tasks (C0 reads, C1 local changes)
+def _tasks(fn):
+    try:
+        return fn()
+    except TaskError as e:
+        raise HTTPException(e.status, e.detail) from e
+
+
+class ReorderIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    ids: list[str] = Field(min_length=1, max_length=200)
+
+
+@app.get("/api/today")
+async def today(request: Request, user: str = Depends(require_user)):
+    return S(request).tasks.today(user)
+
+
+@app.get("/api/tasks")
+async def list_tasks(request: Request, status: str = "draft,open,in_progress", limit: int = 50, offset: int = 0,
+                     user: str = Depends(require_user)):
+    statuses = [s for s in status.split(",") if s in ("draft", "open", "in_progress", "done", "cancelled")]
+    if not statuses:
+        raise HTTPException(422, "Estado no válido")
+    return S(request).tasks.list(user, statuses, max(1, min(limit, 200)), max(0, offset))
+
+
+@app.post("/api/tasks", status_code=201)
+async def create_task(body: TaskIn, request: Request, user: str = Depends(require_user)):
+    key = request.headers.get("idempotency-key")
+    if key is not None and not (8 <= len(key) <= 100):
+        raise HTTPException(422, "Idempotency-Key inválida")
+    # An explicit UI click is the user's own instruction (C1). Sources only mark where the task came from.
+    return _tasks(lambda: S(request).tasks.create(user, body, origin="evidence" if body.sources else "user", actor=user, idem_key=key))
+
+
+@app.patch("/api/tasks/{task_id}")
+async def patch_task(task_id: str, body: TaskPatch, request: Request, user: str = Depends(require_user)):
+    return _tasks(lambda: S(request).tasks.update(user, task_id, body, origin="user", actor=user))
+
+
+@app.post("/api/tasks/reorder")
+async def reorder_tasks(body: ReorderIn, request: Request, user: str = Depends(require_user)):
+    return _tasks(lambda: S(request).tasks.reorder(user, body.ids, origin="user", actor=user))
+
+
+@app.get("/api/tasks/{task_id}/events")
+async def task_events(task_id: str, request: Request, user: str = Depends(require_user)):
+    return _tasks(lambda: S(request).tasks.events(user, task_id))
+
+
+@app.post("/api/events/{event_id}/undo")
+async def undo_event(event_id: int, request: Request, user: str = Depends(require_user)):
+    return _tasks(lambda: S(request).tasks.undo(user, event_id, actor=user))
+
+
+@app.get("/api/actions")
+async def list_actions(request: Request, limit: int = 20, user: str = Depends(require_user)):
+    return S(request).tasks.actions(user, max(1, min(limit, 100)))
 
 
 # ------------------------------------------------------------------ observability / models / system

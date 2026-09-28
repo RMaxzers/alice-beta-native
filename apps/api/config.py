@@ -51,7 +51,16 @@ class Settings(BaseSettings):
     docker_enabled: bool = False
     docker_allowed_containers: str = "alice-qdrant,alice-prometheus,alice-grafana"
     email_enabled: bool = False
-    notebooklm_enabled: bool = False
+    notebooklm_enabled: bool = False          # C2: sends document content to Google; off unless the user enables it
+    notebooklm_cli: str = "notebooklm"
+
+    # Sidecars (loopback only, started by Start-Alice). Integrations degrade to "unavailable" when down.
+    memory_enabled: bool = True
+    hindsight_url: str = "http://127.0.0.1:8888"
+    voice_enabled: bool = True
+    tts_url: str = "http://127.0.0.1:8010"
+    stt_model: str = "small"
+    stt_device: str = "cpu"
     loki_enabled: bool = False
 
     data_dir: Path = ROOT / "data"

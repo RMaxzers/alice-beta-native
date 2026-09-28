@@ -6,7 +6,7 @@
 #>
 param([string[]]$Only)
 . "$PSScriptRoot\_common.ps1"
-foreach ($n in 'grafana', 'prometheus', 'alice-api', 'windows_exporter', 'qdrant', 'ollama') {
+foreach ($n in 'grafana', 'prometheus', 'alice-api', 'pocket-tts', 'hindsight', 'windows_exporter', 'qdrant', 'ollama') {
   if ($Only -and $n -notin $Only) { continue }
   $id = Get-OwnPid $n
   if ($id) {
