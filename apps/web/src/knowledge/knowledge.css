@@ -1,0 +1,90 @@
+/* Knowledge page: view switcher, drop zone, orbit and map visualizations. Colors/type/radius all
+   come from theme.css tokens — nothing here introduces a new palette. */
+
+.view-switch { display: inline-flex; gap: 4px; background: var(--bg-elev-2); border: 1px solid var(--line); border-radius: var(--radius-pill); padding: 3px; }
+.view-switch button { border-radius: var(--radius-pill); color: var(--text-muted); border-color: transparent; }
+.view-switch button:hover:not(:disabled) { border-color: transparent; }
+.view-switch button.is-active { background: var(--bg-elev-3); color: var(--text); }
+
+.dropzone {
+  border: 1px dashed var(--line-strong); border-radius: var(--radius-m); padding: 16px; margin: 12px 0 0;
+  display: grid; gap: 10px; transition: border-color .15s, background-color .15s;
+}
+.dropzone > p:first-child { margin: 0; color: var(--text-muted); }
+.dropzone.is-drag { border-color: var(--accent); background: var(--accent-soft); }
+
+/* -------------------------------------------------------------------- shared detail panel */
+.doc-detail { background: var(--bg-elev-2); border: 1px solid var(--line); border-radius: var(--radius-m); padding: 16px; margin-top: 14px; }
+.doc-detail-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 8px; }
+.doc-detail-head h3 { margin: 0; }
+.doc-detail-actions { margin-top: 10px; }
+.doc-detail-neighbors { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 10px; }
+.doc-detail-neighbors ul { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 4px; }
+.doc-detail-notebooklm { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 10px; }
+.doc-detail-notebooklm h4 { margin: 0 0 6px; }
+.doc-detail-notebooklm .consent { margin-top: 8px; }
+
+/* -------------------------------------------------------------------- spreadsheet viewer (Univer) */
+.sheet-backdrop {
+  position: fixed; inset: 0; z-index: 40; background: rgb(4 6 8 / 0.6); backdrop-filter: blur(4px);
+  display: grid; place-items: center; padding: 24px;
+}
+.sheet-modal {
+  width: 100%; max-width: 1400px; height: min(86vh, 900px); background: var(--bg-elev-2); border: 1px solid var(--line);
+  border-radius: var(--radius-m); box-shadow: var(--shadow-3); display: grid; grid-template-rows: auto 1fr; overflow: hidden;
+}
+.sheet-modal-head { padding: 12px 18px; border-bottom: 1px solid var(--line); align-items: center; }
+.sheet-modal-head h3 { margin: 0; }
+/* dark "paper" regardless of Alice's own light/dark theme: Univer renders with darkMode on inside it */
+.sheet-paper { background: #0e1114; min-height: 0; }
+
+.legend-ready { color: var(--accent); font-weight: 600; }
+.legend-warn { color: var(--accent-2); font-weight: 600; }
+.legend-fail { color: var(--danger); font-weight: 600; }
+
+/* group colours reused across the map legend and (via GROUP_COLOR_VAR) the canvas nodes */
+.pill-pdf { color: var(--series-1); border-color: color-mix(in srgb, var(--series-1) 45%, transparent); background: color-mix(in srgb, var(--series-1) 8%, transparent); }
+.pill-texto { color: var(--series-3); border-color: color-mix(in srgb, var(--series-3) 45%, transparent); background: color-mix(in srgb, var(--series-3) 8%, transparent); }
+.pill-hojas { color: var(--series-6); border-color: color-mix(in srgb, var(--series-6) 45%, transparent); background: color-mix(in srgb, var(--series-6) 8%, transparent); }
+.pill-logs { color: var(--series-2); border-color: color-mix(in srgb, var(--series-2) 45%, transparent); background: color-mix(in srgb, var(--series-2) 8%, transparent); }
+.pill-otros { color: var(--series-4); border-color: color-mix(in srgb, var(--series-4) 45%, transparent); background: color-mix(in srgb, var(--series-4) 8%, transparent); }
+
+/* -------------------------------------------------------------------- orbit */
+.orbit-wrap { display: grid; gap: 4px; }
+.orbit { position: relative; width: min(560px, 100%); aspect-ratio: 1; margin: 20px auto 8px; overflow: visible; }
+.orbit-center { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 2; pointer-events: none; }
+.orbit-item {
+  position: absolute; transform: translate(-50%, -50%); display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 10px 4px 4px; border-radius: var(--radius-pill); border: 1px solid var(--line); background: var(--bg-elev-2);
+  color: var(--text-muted); font-size: .78rem; white-space: nowrap; max-width: 170px; overflow: hidden; z-index: 1;
+}
+.orbit-item:hover, .orbit-item:focus-visible { border-color: var(--line-strong); color: var(--text); z-index: 3; }
+.orbit-item.is-selected { border-color: var(--accent); color: var(--text); box-shadow: 0 0 0 2px var(--accent-soft); z-index: 3; }
+.orbit-item.st-ready { --dot: var(--accent); }
+.orbit-item.st-processing, .orbit-item.st-pending { --dot: var(--accent-2); }
+.orbit-item.st-failed { --dot: var(--danger); }
+.orbit-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; background: var(--dot); box-shadow: 0 0 8px var(--dot); }
+.orbit-item.st-processing .orbit-dot, .orbit-item.st-pending .orbit-dot { animation: orbit-pulse 1.4s ease-in-out infinite; }
+.orbit-label { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.orbit-legend { max-width: 640px; margin: 0 auto; text-align: center; }
+@keyframes orbit-pulse { 50% { opacity: .35; } }
+
+/* -------------------------------------------------------------------- map */
+.map-wrap { display: grid; gap: 4px; }
+.map-path-picker { margin-bottom: 4px; }
+.map-path-result { margin: 0 0 12px; padding-left: 20px; }
+.map-canvas-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--radius-m); background: var(--bg); margin-top: 4px; }
+.map-canvas-wrap canvas { display: block; }
+.map-legend { margin: 10px 0 4px; }
+.map-empty { display: grid; gap: 10px; justify-items: start; padding: 8px 0 4px; }
+.map-list { margin-top: 12px; }
+.map-node-list { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 10px; }
+.map-neighbor-list { list-style: none; margin: 4px 0 0; padding-left: 16px; display: grid; gap: 2px; }
+
+@media (max-width: 760px) {
+  .orbit { width: min(300px, 90vw); margin: 12px auto 6px; }
+  .orbit-label { display: none; }
+  .orbit-item { padding: 7px; }
+  .view-switch { width: 100%; }
+  .view-switch button { flex: 1; }
+}

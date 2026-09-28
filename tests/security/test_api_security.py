@@ -30,7 +30,7 @@ def upload(c, h, name="nota.md", data=MD):
 
 
 # ----------------------------------------------------------------------------- authentication
-PROTECTED = [("GET", "/api/documents"), ("POST", "/api/documents"), ("GET", "/api/documents/x"), ("GET", "/api/documents/x/file"),
+PROTECTED = [("GET", "/api/documents"), ("GET", "/api/knowledge/map"), ("POST", "/api/documents"), ("GET", "/api/documents/x"), ("GET", "/api/documents/x/file"),
              ("POST", "/api/documents/x/cancel"), ("DELETE", "/api/documents/x"), ("GET", "/api/datasets"), ("POST", "/api/chat"),
              ("POST", "/api/egress/x/approve"), ("GET", "/api/facts"), ("POST", "/api/facts"), ("GET", "/api/observability/overview"),
              ("GET", "/api/observability/range?metric=gpu_util_percent"), ("GET", "/api/observability/catalog"), ("GET", "/api/models"),

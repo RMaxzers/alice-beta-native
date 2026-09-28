@@ -45,6 +45,24 @@ class Qdrant:
             r.raise_for_status()
             return r.json()["result"]["points"]
 
+    async def vectors_by_document(self, document_ids: list[str], page: int = 256) -> dict[str, list[list[float]]]:
+        """All chunk vectors of the given documents, grouped by document_id (scroll API)."""
+        out: dict[str, list[list[float]]] = {}
+        if not document_ids:
+            return out
+        body = {"filter": {"must": [{"key": "document_id", "match": {"any": document_ids}}]},
+                "limit": page, "with_payload": ["document_id"], "with_vector": True}
+        async with httpx.AsyncClient(timeout=30) as c:
+            while True:
+                r = await c.post(f"{self.url}/collections/{self.collection}/points/scroll", json=body)
+                r.raise_for_status()
+                res = r.json()["result"]
+                for p in res["points"]:
+                    out.setdefault(p["payload"]["document_id"], []).append(p["vector"])
+                if not res.get("next_page_offset"):
+                    return out
+                body["offset"] = res["next_page_offset"]
+
     async def delete_document(self, document_id: str) -> None:
         async with httpx.AsyncClient(timeout=30) as c:
             r = await c.post(f"{self.url}/collections/{self.collection}/points/delete?wait=true",
