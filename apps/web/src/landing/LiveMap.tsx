@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, errMsg } from "../api";
-import { ARCH_LINKS, ARCH_NODES, WorldMap, type MapEvent, type Tone } from "./WorldMap";
+import { NetworkArt, type NetEvent, type NetLink, type NetNode, type Tone } from "./Network";
 import "./landing.css";
 
 interface Req { request_id: string; started_at: string; route: string | null; provider: string | null; model: string | null; status: string; duration_s: number | null }
@@ -12,7 +12,7 @@ function place(r: Req): { to: string; tone: Tone; dest: string } {
   if (r.provider === "openrouter") return { to: "openrouter", tone: "cloud", dest: "Nube · OpenRouter" };
   if (r.provider === "tavily") return { to: "web", tone: "web", dest: "Web · Tavily" };
   const tone: Tone = r.route === "LOCAL_RAG" ? "knowledge" : r.route === "OBSERVABILITY" ? "obs" : r.route ? "local" : "muted";
-  return { to: "pc", tone, dest: "Este PC" };
+  return { to: "pc", tone, dest: "Este equipo" };
 }
 
 // Same buckets the backend uses for "Hoy" (services/observability/answers.py usage_today).
@@ -24,13 +24,13 @@ let seen: Set<string> | null = null;
 const LEGEND: [Tone, string][] = [
   ["local", "Local"], ["knowledge", "Conocimiento (RAG)"], ["obs", "Observabilidad"], ["cloud", "Nube · OpenRouter"], ["web", "Web · Tavily"],
 ];
-const MAP_LABEL = "Mapa en vivo de las consultas: las locales se marcan en este PC (Santiago, aproximado); " +
-  "las que salen a la nube van a OpenRouter (EE. UU., aproximado) y las de búsqueda web a Tavily. El detalle está en la tabla.";
 const hhmm = (iso: string) => new Date(iso).toLocaleTimeString("es-CL", { hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" });
+// Node size follows the real count, gently (sqrt so one outlier day doesn't dwarf everything).
+const nodeR = (n: number) => Math.round(Math.min(16, 7 + Math.sqrt(n)));
 
 export function LiveMap() {
   const [ov, setOv] = useState<Overview | null>(null);
-  const [events, setEvents] = useState<MapEvent[]>([]);
+  const [events, setEvents] = useState<NetEvent[]>([]);
   const [err, setErr] = useState("");
   const [updated, setUpdated] = useState<{ at: string; fresh: number } | null>(null);
 
@@ -62,6 +62,17 @@ export function LiveMap() {
   const by = ov?.usage_today?.by_provider;
   const count = (ps: string[]) => ps.reduce((n, p) => n + (by?.[p] ?? 0), 0);
   const recent = ov?.recent_requests.slice(0, 6) ?? [];
+  const nLocal = count(LOCAL_PROVIDERS), nCloud = count(["openrouter"]), nWeb = count(["tavily"]);
+  const hasRequests = (ov?.recent_requests.length ?? 0) > 0;
+
+  const nodes: NetNode[] = [
+    { id: "pc", label: "Este equipo", sub: by ? `${nLocal} hoy` : undefined, tone: "local", at: [0.2, 0.5], r: nodeR(nLocal) },
+    { id: "openrouter", label: "Nube · OpenRouter", sub: by ? `${nCloud} hoy` : undefined, tone: "cloud", at: [0.82, 0.2], r: nodeR(nCloud), anchor: "start" },
+    { id: "web", label: "Web · Tavily", sub: by ? `${nWeb} hoy` : undefined, tone: "web", at: [0.82, 0.8], r: nodeR(nWeb), anchor: "start" },
+  ];
+  const links: NetLink[] = [{ from: "pc", to: "openrouter", tone: "cloud" }, { from: "pc", to: "web", tone: "web" }];
+  const label = "Red de dónde procesa Alice tus consultas hoy, con datos reales de este equipo: local, y cuando corresponde, " +
+    "la nube (OpenRouter) o la búsqueda web (Tavily). El detalle está en la tabla de abajo.";
 
   return (
     <section className="lm" aria-labelledby="lm-title">
@@ -71,7 +82,7 @@ export function LiveMap() {
           {updated ? `Actualizado ${hhmm(updated.at)}${updated.fresh ? ` · ${updated.fresh} nueva${updated.fresh > 1 ? "s" : ""}` : ""}` : "Cargando…"}
         </p>
       </div>
-      {err && <p className="error" role="alert">No se pudo actualizar el mapa: {err}. Se reintenta en 10 s.</p>}
+      {err && <p className="error" role="alert">No se pudo actualizar: {err}. Se reintenta en 10 s.</p>}
 
       <ul className="lm-legend" aria-label="Leyenda">
         {LEGEND.map(([tone, text]) => (
@@ -79,19 +90,21 @@ export function LiveMap() {
         ))}
       </ul>
 
-      <div className="lm-map">
-        <WorldMap nodes={ARCH_NODES} links={ARCH_LINKS} events={events} label={MAP_LABEL} />
-      </div>
+      {!ov ? null : !hasRequests ? (
+        <p className="lm-empty">Aún no hay consultas registradas hoy; haz una pregunta en Chat para ver esta red con datos reales.</p>
+      ) : (
+        <div className="lm-map"><NetworkArt nodes={nodes} links={links} events={events} label={label} /></div>
+      )}
 
       {by && (
         <dl className="lm-stats" aria-label="Consultas completadas hoy">
-          <div data-tone="local"><dt>Hoy · locales</dt><dd>{count(LOCAL_PROVIDERS)}</dd></div>
-          <div data-tone="cloud"><dt>Hoy · nube (OpenRouter)</dt><dd>{count(["openrouter"])}</dd></div>
-          <div data-tone="web"><dt>Hoy · web (Tavily)</dt><dd>{count(["tavily"])}</dd></div>
+          <div data-tone="local"><dt>Hoy · locales</dt><dd>{nLocal}</dd></div>
+          <div data-tone="cloud"><dt>Hoy · nube (OpenRouter)</dt><dd>{nCloud}</dd></div>
+          <div data-tone="web"><dt>Hoy · web (Tavily)</dt><dd>{nWeb}</dd></div>
         </dl>
       )}
 
-      {ov && (recent.length === 0 ? <p className="lm-empty">Aún no hay consultas recientes; haz una pregunta en Chat.</p> : (
+      {hasRequests && (
         <table className="lm-feed">
           <caption className="sr-only">Últimas consultas registradas</caption>
           <thead><tr><th>Hora</th><th>Ruta</th><th>Destino</th><th className="opt">Estado</th><th className="opt num">Duración</th></tr></thead>
@@ -110,7 +123,7 @@ export function LiveMap() {
             })}
           </tbody>
         </table>
-      ))}
+      )}
     </section>
   );
 }

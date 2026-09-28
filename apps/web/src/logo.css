@@ -1,0 +1,42 @@
+/* Alice icon (Logo.tsx). --c is the route color; the cat keeps its own fixed colors so it reads the same
+   on dark and light themes. Motion answers state changes; prefers-reduced-motion freezes all of it. */
+.logo { --c: var(--accent); flex-shrink: 0; overflow: visible; }
+.logo .lens-glow { stop-color: var(--c); }
+.logo .ring { fill: none; stroke: var(--c); stroke-width: 3.2; transition: stroke var(--dur-quick) var(--ease-out); }
+.logo .speed line { stroke: var(--c); stroke-width: 1.8; stroke-linecap: round; opacity: .55; }
+.logo .face { fill: #f4f1ea; }
+.logo .helmet { fill: #ece7dc; }
+.logo .shine { fill: none; stroke: #fff; stroke-width: 2.4; stroke-linecap: round; opacity: .8; }
+.logo .rim { fill: #12161a; }
+.logo .rivet, .logo .glint { fill: var(--c); }
+.logo .eyes path { fill: #132020; }
+.logo .nose { fill: #e8959a; }
+.logo .mouth { fill: none; stroke: #9a8e86; stroke-width: 1.4; stroke-linecap: round; }
+.logo .cat { transform-origin: 50px 60px; }
+
+.logo[data-state="routing"] { --c: var(--accent-2); }
+.logo[data-state="local"] { --c: var(--route-local); }
+.logo[data-state="knowledge"] { --c: var(--route-knowledge); }
+.logo[data-state="cloud"] { --c: var(--route-cloud); }
+.logo[data-state="observability"] { --c: var(--route-obs); }
+.logo[data-state="error"] { --c: var(--danger); }
+
+/* idle: a slow blink, nothing else */
+.logo[data-state="idle"] .eyes, .logo[data-state="idle"] .glint { transform-origin: 50px 65px; animation: logo-blink 6s ease-in-out infinite; }
+/* routing: the tunnel rushes past */
+.logo[data-state="routing"] .speed line { opacity: 1; animation: logo-rush .5s linear infinite; }
+.logo[data-state="routing"] .speed line:nth-child(2n) { animation-delay: .25s; }
+/* working on a route: glints pulse, the rider leans in */
+.logo:is([data-state="local"], [data-state="knowledge"], [data-state="cloud"], [data-state="observability"]) .glint { animation: logo-pulse 1.2s ease-in-out infinite; }
+.logo:is([data-state="local"], [data-state="knowledge"], [data-state="cloud"], [data-state="observability"]) .cat { animation: logo-lean 1.6s ease-in-out infinite; }
+.logo[data-state="error"] .cat { animation: logo-shake .4s ease-in-out 2; }
+
+@keyframes logo-blink { 0%, 94%, 100% { transform: scaleY(1); } 97% { transform: scaleY(.1); } }
+@keyframes logo-rush { from { stroke-dasharray: 12 12; stroke-dashoffset: 24; } to { stroke-dasharray: 12 12; stroke-dashoffset: 0; } }
+@keyframes logo-pulse { 50% { opacity: .35; } }
+@keyframes logo-lean { 50% { transform: translateY(-1.5px) rotate(-2deg); } }
+@keyframes logo-shake { 25% { transform: translateX(-3px); } 75% { transform: translateX(3px); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .logo *, .logo { animation: none !important; transition: none !important; }
+}
