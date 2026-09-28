@@ -21,6 +21,7 @@ from services.providers.ollama import OllamaProvider
 from services.providers.openrouter import OpenRouterProvider
 from services.rag.qdrant import Qdrant
 from services.router.router import Router
+from services.tasks.store import TaskStore
 from services.workers.orchestrator import Orchestrator
 
 
@@ -76,6 +77,8 @@ class AliceState:
                                  s.max_upload_mb * 1024 * 1024, s.max_pdf_pages)
         self.health = HealthChecker(self)
         self.observability = ObservabilityAnswerer(self)
+        self.tasks = TaskStore(self.con, s.alice_timezone)
+        self.tasks.reconcile()
         self.orchestrator = Orchestrator(self)
 
     def set_local_only(self, value: bool) -> None:

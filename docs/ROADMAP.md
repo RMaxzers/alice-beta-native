@@ -9,6 +9,7 @@
 
 ## Después de la beta
 
+- Evaluar decisiones locales con abstención y evidencia (Jev/Laya y trabajos de Nandakishor): [homologación e hipótesis de prueba](DECISION-MODELS-RESEARCH.md). No reemplazar el router ni la barrera de consentimiento sin evaluación ciega en español y medición de recursos.
 - Flag de mantenimiento en la API para pausar mutaciones sin detener el proceso (permitiría backups consistentes sin cortar el chat).
 - Variables del contrato §20.1 que faltan: `ALICE_RUNTIME`, `ALICE_DATA_DIR`, `ALICE_VECTORSTORE_MODE`, `QDRANT_LOCAL_PATH`, `ALICE_DOCKER_BROKER_URL`.
 - Modo Qdrant embebido (`VectorStoreAdapter` local/server) con migración explícita, si se quiere reducir procesos.

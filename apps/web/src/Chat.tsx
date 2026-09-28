@@ -2,8 +2,14 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { api, errMsg, raw } from "./api";
 import { Logo, type LogoState } from "./Logo";
 import { renderMarkdown } from "./md";
+import { ACTION_STATUS_LABEL, type Action, type Priority, type Privacy, type Task } from "./tasks";
+import {
+  MIC_GENERIC_ERROR, MIC_PERMISSION_DENIED, MIC_UNAVAILABLE, fetchVoiceStatus, pickMimeType, synthesizeSpeech,
+  toSpeechText, transcribeAudio, voiceSupported, type VoiceStatus,
+} from "./voice";
+import "./voice.css";
 
-export type Privacy = "PUBLIC" | "INTERNAL" | "PRIVATE";
+export type { Privacy };
 const RANK: Record<Privacy, number> = { PUBLIC: 0, INTERNAL: 1, PRIVATE: 2 };
 export const strictest = (...p: Privacy[]): Privacy => p.reduce((a, b) => (RANK[b] > RANK[a] ? b : a), "PUBLIC" as Privacy);
 
@@ -19,10 +25,16 @@ type Done = { request_id: string; provider: string | null; model: string | null;
 type Body = { message: string; privacy: Privacy; history: { role: string; content: string; privacy: Privacy }[];
   document_ids: string[]; force_route?: string; authorization_ticket?: string };
 type Status = "streaming" | "done" | "error" | "cancelled" | "consent";
+type ActionCard = { action: Action | null; task: Task | null; event_id: number | null; message: string; undone?: boolean; undoError?: string };
+type TaskSuggestion = { kind: "create_task"; title: string; description?: string; due_date?: string | null; priority?: Priority;
+  sources?: { kind: "log"; document_id: string; line: number }[] };
+type SuggestionCard = { suggestion: TaskSuggestion; note: string; state: "idle" | "creating" | "created" | "error";
+  error?: string; createdTask?: Task; createdEventId?: number | null; duplicate?: boolean; undone?: boolean };
 type Msg = {
   id: string; role: "user" | "assistant"; content: string; privacy: Privacy; status: Status;
   decision?: Decision; raisedBy?: string[]; tools: Tool[]; sources: Source[]; done?: Done; error?: string;
   consent?: { preview: Preview; options: string[]; body: Body }; estimate?: number | null; attachments?: string[];
+  actions: ActionCard[]; suggestions: SuggestionCard[];
 };
 type Doc = { document_id: string; original_name: string; privacy: Privacy; status: string; kind: string };
 
@@ -37,6 +49,25 @@ const PRIV_HELP: Record<Privacy, string> = {
 };
 const safeUrl = (u?: string | null) => !!u && /^(https?:\/\/|\/api\/documents\/)/i.test(u);
 const uid = () => Math.random().toString(36).slice(2);
+type MicStatus = "idle" | "recording" | "transcribing";
+type ListenState = { status: "idle" | "loading" | "playing" | "error"; error?: string };
+
+function MicIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
+      <rect x="9" y="2" width="6" height="12" rx="3" /><path d="M5 11a7 7 0 0 0 14 0" /><path d="M12 18v4M9 22h6" />
+    </svg>
+  );
+}
+
+function SpeakerIcon({ muted }: { muted?: boolean }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M4 9v6h4l5 4V5L8 9H4Z" />
+      {muted ? <path d="M17 9l5 6M22 9l-5 6" /> : <path d="M17.5 8.5a5 5 0 0 1 0 7M20 6a8.5 8.5 0 0 1 0 12" />}
+    </svg>
+  );
+}
 
 export function Chat({ setLogo }: { setLogo: (s: LogoState) => void }) {
   const [msgs, setMsgs] = useState<Msg[]>([]);
@@ -47,10 +78,90 @@ export function Chat({ setLogo }: { setLogo: (s: LogoState) => void }) {
   const ctrl = useRef<AbortController | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
   const busy = msgs.some((m) => m.status === "streaming");
+  const [streak, setStreak] = useState(0);
+
+  const [voiceStatus, setVoiceStatus] = useState<VoiceStatus | null>(null);
+  const [micStatus, setMicStatus] = useState<MicStatus>("idle");
+  const [micError, setMicError] = useState<string | null>(null);
+  const micSupported = useMemo(voiceSupported, []);
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+  const [listen, setListen] = useState<Record<string, ListenState>>({});
+  const playingRef = useRef<{ id: string; audio: HTMLAudioElement; url: string } | null>(null);
 
   const loadDocs = () => api<Doc[]>("/api/documents").then((d) => setDocs(d.filter((x) => x.status === "ready"))).catch(() => setDocs([]));
   useEffect(() => { loadDocs(); }, []);
+  useEffect(() => { fetchVoiceStatus().then(setVoiceStatus).catch(() => setVoiceStatus(null)); }, []);
   useEffect(() => { endRef.current?.scrollIntoView({ block: "end" }); }, [msgs]);
+  useEffect(() => () => { playingRef.current?.audio.pause(); recorderRef.current?.stream.getTracks().forEach((t) => t.stop()); }, []);
+
+  async function startRecording() {
+    setMicError(null);
+    if (!micSupported) { setMicError(MIC_UNAVAILABLE); return; }
+    let stream: MediaStream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (e) {
+      setMicError((e as DOMException)?.name === "NotAllowedError" ? MIC_PERMISSION_DENIED : MIC_GENERIC_ERROR);
+      return;
+    }
+    const mime = pickMimeType();
+    const rec = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+    chunksRef.current = [];
+    rec.ondataavailable = (e) => { if (e.data.size) chunksRef.current.push(e.data); };
+    rec.onstop = async () => {
+      stream.getTracks().forEach((t) => t.stop());
+      const blob = new Blob(chunksRef.current, { type: rec.mimeType || "audio/webm" });
+      setMicStatus("transcribing");
+      try {
+        const heard = await transcribeAudio(blob);
+        setText((t) => (t.trim() && heard ? `${t.trim()} ${heard}` : heard || t));
+      } catch (e) {
+        setMicError(errMsg(e));
+      }
+      setMicStatus("idle");
+    };
+    recorderRef.current = rec;
+    rec.start();
+    setMicStatus("recording");
+  }
+
+  function toggleMic() {
+    if (micStatus === "recording") recorderRef.current?.stop();
+    else if (micStatus === "idle") startRecording();
+  }
+
+  async function toggleListen(id: string, content: string) {
+    const cur = playingRef.current;
+    if (cur?.id === id) {
+      cur.audio.pause();
+      URL.revokeObjectURL(cur.url);
+      playingRef.current = null;
+      setListen((s) => ({ ...s, [id]: { status: "idle" } }));
+      return;
+    }
+    if (cur) {
+      cur.audio.pause();
+      URL.revokeObjectURL(cur.url);
+      setListen((s) => ({ ...s, [cur.id]: { status: "idle" } }));
+    }
+    setListen((s) => ({ ...s, [id]: { status: "loading" } }));
+    try {
+      const blob = await synthesizeSpeech(toSpeechText(content));
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      audio.onended = () => { setListen((s) => ({ ...s, [id]: { status: "idle" } })); URL.revokeObjectURL(url); playingRef.current = null; };
+      audio.onerror = () => {
+        setListen((s) => ({ ...s, [id]: { status: "error", error: "No se pudo reproducir el audio." } }));
+        URL.revokeObjectURL(url); playingRef.current = null;
+      };
+      playingRef.current = { id, audio, url };
+      await audio.play();
+      setListen((s) => ({ ...s, [id]: { status: "playing" } }));
+    } catch (e) {
+      setListen((s) => ({ ...s, [id]: { status: "error", error: errMsg(e) } }));
+    }
+  }
 
   const patch = (id: string, f: (m: Msg) => Partial<Msg>) => setMsgs((ms) => ms.map((m) => (m.id === id ? { ...m, ...f(m) } : m)));
 
@@ -69,7 +180,7 @@ export function Chat({ setLogo }: { setLogo: (s: LogoState) => void }) {
     const ac = new AbortController();
     ctrl.current = ac;
     setLogo("routing");
-    patch(id, () => ({ status: "streaming", content: "", tools: [], sources: [], error: undefined, consent: undefined, done: undefined }));
+    patch(id, () => ({ status: "streaming", content: "", tools: [], sources: [], actions: [], suggestions: [], error: undefined, consent: undefined, done: undefined }));
     let final: Status = "done";
     try {
       const r = await raw("/api/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal: ac.signal });
@@ -93,6 +204,12 @@ export function Chat({ setLogo }: { setLogo: (s: LogoState) => void }) {
               break;
             case "tool": patch(id, (m) => ({ tools: [...m.tools, ev] })); break;
             case "sources": patch(id, (m) => ({ sources: [...m.sources, ...ev.sources] })); break;
+            case "action":
+              patch(id, (m) => ({ actions: [...m.actions, { action: ev.action, task: ev.task ?? null, event_id: ev.event_id ?? null, message: ev.message }] }));
+              break;
+            case "suggestion":
+              patch(id, (m) => ({ suggestions: [...m.suggestions, { suggestion: ev.suggestion, note: ev.note, state: "idle" }] }));
+              break;
             case "token": patch(id, (m) => ({ content: m.content + ev.text })); break;
             case "done": patch(id, (m) => ({ done: ev, privacy: ev.privacy ?? m.privacy })); break;
             case "authorization_required":
@@ -119,12 +236,15 @@ export function Chat({ setLogo }: { setLogo: (s: LogoState) => void }) {
     e?.preventDefault();
     const message = text.trim();
     if (!message || busy) return;
+    if (!window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      setStreak((n) => n + 1);
+    }
     const body: Body = { message, privacy, history: history(msgs), document_ids: attached };
     const aid = uid();
     setMsgs((ms) => [...ms,
-      { id: uid(), role: "user", content: message, privacy, status: "done", tools: [], sources: [],
+      { id: uid(), role: "user", content: message, privacy, status: "done", tools: [], sources: [], actions: [], suggestions: [],
         attachments: attachedDocs.map((d) => d.original_name) },
-      { id: aid, role: "assistant", content: "", privacy: effective, status: "streaming", tools: [], sources: [] }]);
+      { id: aid, role: "assistant", content: "", privacy: effective, status: "streaming", tools: [], sources: [], actions: [], suggestions: [] }]);
     setText("");
     stream(aid, body);
   }
@@ -146,6 +266,52 @@ export function Chat({ setLogo }: { setLogo: (s: LogoState) => void }) {
     stream(m.id, { ...b, force_route: b.document_ids.length ? "LOCAL_RAG" : "LOCAL_SIMPLE" });
   }
 
+  async function undoEvent(eventId: number): Promise<void> {
+    await api(`/api/events/${eventId}/undo`, "POST");
+  }
+
+  async function undoAction(msgId: string, idx: number) {
+    const a = msgs.find((m) => m.id === msgId)?.actions[idx];
+    if (!a || a.event_id == null) return;
+    try {
+      await undoEvent(a.event_id);
+      patch(msgId, (m) => ({ actions: m.actions.map((x, i) => (i === idx ? { ...x, undone: true } : x)) }));
+    } catch (e) {
+      patch(msgId, (m) => ({ actions: m.actions.map((x, i) => (i === idx ? { ...x, undoError: errMsg(e) } : x)) }));
+    }
+  }
+
+  async function undoSuggestion(msgId: string, idx: number) {
+    const s = msgs.find((m) => m.id === msgId)?.suggestions[idx];
+    if (!s || s.createdEventId == null) return;
+    try {
+      await undoEvent(s.createdEventId);
+      patch(msgId, (m) => ({ suggestions: m.suggestions.map((x, i) => (i === idx ? { ...x, undone: true } : x)) }));
+    } catch (e) {
+      patch(msgId, (m) => ({ suggestions: m.suggestions.map((x, i) => (i === idx ? { ...x, error: errMsg(e) } : x)) }));
+    }
+  }
+
+  async function createFromSuggestion(msgId: string, idx: number) {
+    const s = msgs.find((m) => m.id === msgId)?.suggestions[idx];
+    if (!s) return;
+    patch(msgId, (m) => ({ suggestions: m.suggestions.map((x, i) => (i === idx ? { ...x, state: "creating" } : x)) }));
+    try {
+      const key = crypto.randomUUID();
+      const r = await raw("/api/tasks", {
+        method: "POST", headers: { "Content-Type": "application/json", "Idempotency-Key": key },
+        body: JSON.stringify({ title: s.suggestion.title, description: s.suggestion.description, due_date: s.suggestion.due_date,
+          priority: s.suggestion.priority, kind: "work", sources: s.suggestion.sources }),
+      });
+      const body = await r.json() as { task: Task; action: Action; event_id: number; duplicate: boolean };
+      patch(msgId, (m) => ({ suggestions: m.suggestions.map((x, i) => (i === idx
+        ? { ...x, state: "created", createdTask: body.task, createdEventId: body.duplicate ? null : body.event_id, duplicate: body.duplicate }
+        : x)) }));
+    } catch (e) {
+      patch(msgId, (m) => ({ suggestions: m.suggestions.map((x, i) => (i === idx ? { ...x, state: "error", error: errMsg(e) } : x)) }));
+    }
+  }
+
   return (
     <section className="chat">
       <h1 className="sr-only">Chat</h1>
@@ -153,10 +319,9 @@ export function Chat({ setLogo }: { setLogo: (s: LogoState) => void }) {
         <div className="thread">
         {msgs.length === 0 && (
           <div className="empty">
-            <Logo size={88} />
+            <Logo size={96} state="idle" />
             <h2>¿En qué te ayudo?</h2>
-            <p>Las consultas se procesan en este equipo por defecto. Nada sale a un proveedor externo sin que lo autorices aquí.</p>
-            <p className="muted">Puedes adjuntar documentos listos de Conocimiento, preguntar por el estado del sistema («¿cómo va la GPU?») o por tus tablas.</p>
+            <p className="muted">Se procesa en este equipo por defecto; nada sale sin tu autorización.</p>
           </div>
         )}
         {msgs.map((m) => m.role === "user" ? (
@@ -166,7 +331,11 @@ export function Chat({ setLogo }: { setLogo: (s: LogoState) => void }) {
           </div>
         ) : (
           <AssistantMsg key={m.id} m={m} onAuthorize={() => authorize(m)} onLocal={() => continueLocal(m)}
-            onCancel={() => { patch(m.id, () => ({ status: "cancelled", consent: undefined })); setLogo("idle"); }} />
+            onCancel={() => { patch(m.id, () => ({ status: "cancelled", consent: undefined })); setLogo("idle"); }}
+            onUndoAction={(i) => undoAction(m.id, i)} onCreateSuggestion={(i) => createFromSuggestion(m.id, i)}
+            onUndoSuggestion={(i) => undoSuggestion(m.id, i)}
+            listen={listen[m.id] ?? { status: "idle" }} voiceEnabled={voiceStatus?.enabled !== false}
+            onToggleListen={() => toggleListen(m.id, m.content)} />
         ))}
         </div>
         <div ref={endRef} />
@@ -175,9 +344,21 @@ export function Chat({ setLogo }: { setLogo: (s: LogoState) => void }) {
 
       <form className="composer" onSubmit={send}>
         <div className="composer-box">
+          {streak > 0 && <span key={streak} className="send-streak" aria-hidden onAnimationEnd={() => setStreak(0)} />}
           <textarea value={text} onChange={(e) => setText(e.target.value)} rows={2} maxLength={20000} placeholder="Escribe tu consulta…"
             aria-label="Mensaje" onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }} />
           <div className="composer-bar">
+            {voiceStatus?.enabled !== false && (
+              <button type="button" className={`mic-btn${micStatus === "recording" ? " is-recording" : ""}`}
+                aria-pressed={micStatus === "recording"} disabled={micStatus === "transcribing" || !micSupported}
+                title={!micSupported ? MIC_UNAVAILABLE : micStatus === "recording" ? "Detener grabación" : "Grabar un mensaje de voz"}
+                onClick={toggleMic}>
+                <MicIcon />
+                <span className="sr-only">{micStatus === "recording" ? "Detener grabación" : "Grabar un mensaje de voz"}</span>
+              </button>
+            )}
+            {micStatus === "transcribing" && <span className="muted small-text">Transcribiendo…</span>}
+            {micError && <span className="error small-text" role="alert">{micError}</span>}
             <label className="inline">Privacidad
               <select value={privacy} onChange={(e) => setPrivacy(e.target.value as Privacy)} title={PRIV_HELP[privacy]}>
                 <option value="PRIVATE">PRIVATE</option><option value="INTERNAL">INTERNAL</option><option value="PUBLIC">PUBLIC</option>
@@ -223,16 +404,95 @@ function cost(m: Msg): string {
   return d ? "desconocido" : "—";
 }
 
-function AssistantMsg({ m, onAuthorize, onLocal, onCancel }: { m: Msg; onAuthorize: () => void; onLocal: () => void; onCancel: () => void }) {
+function ActionResultCard({ a, onUndo }: { a: ActionCard; onUndo: () => void }) {
+  const task = a.task;
+  const when = task ? `${task.title}${task.due_date ? ` · ${task.due_date}` : ""}` : null;
+  const canUndo = !a.undone && a.event_id != null;
+  const undoRow = (
+    <div className="row wrap">
+      {canUndo && <button type="button" className="ghost small" onClick={onUndo}>Deshacer</button>}
+      {a.undone && <span className="muted small-text">Deshecho</span>}
+      {a.undoError && <span className="error small-text">{a.undoError}</span>}
+      <a className="button small" href="#today">Ver en Hoy</a>
+    </div>
+  );
+  // action can be null (e.g. the task already existed): show the backend's message and the task, no status inference.
+  if (!a.action) {
+    return <div className="chat-card chat-card-muted"><p>{a.message}</p>{when && <p className="muted small-text">{when}</p>}{undoRow}</div>;
+  }
+  const st = a.action.status;
+  if (st === "done" && task?.status === "draft") {
+    return (
+      <div className="chat-card chat-card-warn">
+        <p><strong>Borrador guardado (no es una tarea activa):</strong> {a.message}</p>
+        {when && <p className="muted small-text">{when}</p>}
+        {undoRow}
+      </div>
+    );
+  }
+  if (st === "done") {
+    return (
+      <div className="chat-card chat-card-ok" role="status">
+        <p><strong>Hecho:</strong> {a.message}</p>
+        {when && <p className="muted small-text">{when}</p>}
+        {undoRow}
+      </div>
+    );
+  }
+  if (st === "proposed") return <div className="chat-card chat-card-muted"><p><strong>Borrador / propuesta, no ejecutada.</strong> {a.message}</p></div>;
+  if (st === "failed") return <div className="chat-card chat-card-danger" role="alert"><p className="error"><strong>Fallido:</strong> {a.message}</p></div>;
+  if (st === "needs_review" || st === "awaiting_authorization")
+    return <div className="chat-card chat-card-warn"><p><strong>Requiere tu revisión: no se ejecutó.</strong> {a.message}</p></div>;
+  return <div className="chat-card chat-card-muted"><p><strong>{ACTION_STATUS_LABEL[st]}:</strong> {a.message}</p></div>;
+}
+
+function SuggestionResultCard({ s, onCreate, onUndo }: { s: SuggestionCard; onCreate: () => void; onUndo: () => void }) {
+  return (
+    <div className="chat-card chat-card-muted">
+      <p><strong>Sugerencia (no se ha creado nada):</strong> {s.suggestion.title}</p>
+      {s.note && <p className="muted small-text">{s.note}</p>}
+      {s.state === "idle" && <button type="button" className="small" onClick={onCreate}>Crear seguimiento</button>}
+      {s.state === "creating" && <p className="muted small-text">Creando…</p>}
+      {s.state === "created" && (
+        <div className="row wrap">
+          <p className="ok-text small-text">
+            {s.duplicate ? "Ya existía una tarea igual" : "Creada"}{s.createdTask ? `: ${s.createdTask.title}` : ""}
+          </p>
+          {!s.duplicate && !s.undone && s.createdEventId != null && <button type="button" className="ghost small" onClick={onUndo}>Deshacer</button>}
+          {s.undone && <span className="muted small-text">Deshecho</span>}
+          <a className="button small" href="#today">Ver en Hoy</a>
+        </div>
+      )}
+      {s.state === "error" && <p className="error small-text" role="alert">{s.error}</p>}
+    </div>
+  );
+}
+
+function AssistantMsg({ m, onAuthorize, onLocal, onCancel, onUndoAction, onCreateSuggestion, onUndoSuggestion, listen, voiceEnabled, onToggleListen }: {
+  m: Msg; onAuthorize: () => void; onLocal: () => void; onCancel: () => void;
+  onUndoAction: (idx: number) => void; onCreateSuggestion: (idx: number) => void; onUndoSuggestion: (idx: number) => void;
+  listen: ListenState; voiceEnabled: boolean; onToggleListen: () => void;
+}) {
   const html = useMemo(() => renderMarkdown(m.content), [m.content]);
   const c = m.consent;
+  const logoState: LogoState = m.decision ? LOGO_FOR_ROUTE[m.decision.route] ?? "local" : "idle";
   return (
-    <div className="msg assistant" data-route={m.decision ? LOGO_FOR_ROUTE[m.decision.route] ?? "local" : undefined}>
-      <span className="avatar-ai" aria-hidden />
+    <div className="msg assistant" data-route={m.decision ? LOGO_FOR_ROUTE[m.decision.route] ?? "local" : undefined} data-status={m.status}>
+      <span className="avatar-ai" aria-hidden="true"><Logo size={28} state={logoState} /></span>
       <div className="msg-body">
       <div className="bubble">
         {m.content ? <div className="md" dangerouslySetInnerHTML={{ __html: html }} />
           : m.status === "streaming" ? <span className="muted typing">{m.decision ? "Generando…" : "Decidiendo ruta…"}</span> : null}
+        {m.status === "done" && m.content.trim() && voiceEnabled && (
+          <div className="listen-row">
+            <button type="button" className={`ghost small listen-btn${listen.status === "playing" ? " is-active" : ""}`}
+              aria-pressed={listen.status === "playing"} disabled={listen.status === "loading"} onClick={onToggleListen}>
+              <SpeakerIcon muted={listen.status === "playing"} />
+              {listen.status === "loading" ? "Cargando…" : listen.status === "playing" ? "Detener" : "Escuchar"}
+            </button>
+            {listen.status === "error" && <span className="error small-text" role="alert">{listen.error}</span>}
+          </div>
+        )}
         {m.status === "cancelled" && <p className="muted">Cancelado: no se generó más respuesta.</p>}
         {m.error && <p className="error" role="alert">{m.error}</p>}
         {c && m.status === "consent" && (
@@ -258,6 +518,10 @@ function AssistantMsg({ m, onAuthorize, onLocal, onCancel }: { m: Msg; onAuthori
             {c.options.includes("CONTINUE_LOCAL") && <p className="muted small-text">Localmente no habrá datos actuales de internet ni modelo cloud.</p>}
           </div>
         )}
+        {m.actions.map((a, i) => <ActionResultCard key={i} a={a} onUndo={() => onUndoAction(i)} />)}
+        {m.suggestions.map((s, i) => (
+          <SuggestionResultCard key={i} s={s} onCreate={() => onCreateSuggestion(i)} onUndo={() => onUndoSuggestion(i)} />
+        ))}
       </div>
       {(m.decision || m.done) && (
         <details className="details">

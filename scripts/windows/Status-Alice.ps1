@@ -25,6 +25,8 @@ if ($v) {
 } else { Line 'Ollama' 'DOWN' 'http://127.0.0.1:11434' }
 
 if (Test-Http 'http://127.0.0.1:6333/healthz') { Line 'Qdrant' 'HEALTHY' 'http://127.0.0.1:6333 (loopback)' } else { Line 'Qdrant' 'DOWN' '' }
+if (Test-Http 'http://127.0.0.1:8888/health') { Line 'Memoria' 'HEALTHY' 'hindsight http://127.0.0.1:8888 (loopback)' } else { Line 'Memoria' 'UNAVAILABLE' 'hindsight no responde (opcional)' }
+if (Test-Http 'http://127.0.0.1:8010/health') { Line 'Voz' 'HEALTHY' 'pocket-tts es http://127.0.0.1:8010 (loopback)' } else { Line 'Voz' 'UNAVAILABLE' 'pocket-tts no responde (opcional)' }
 
 $t = Get-Json 'http://127.0.0.1:9090/api/v1/targets'
 if ($t) {

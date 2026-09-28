@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import { api, setCsrf, setOnUnauthorized } from "./api";
 import { Logo, LogoState, STATE_LABEL } from "./Logo";
 import { Chat } from "./Chat";
+import { Today } from "./Today";
 import { Knowledge } from "./Knowledge";
 import { Observability } from "./Observability";
 import { Models, SettingsPage, SystemPage } from "./pages";
@@ -12,12 +13,13 @@ import "./theme.css";
 import "./styles.css";
 
 const TABS = [
-  ["home", "Inicio"], ["chat", "Chat"], ["knowledge", "Conocimiento"], ["observability", "Observabilidad"],
+  ["today", "Hoy"], ["home", "Inicio"], ["chat", "Chat"], ["knowledge", "Conocimiento"], ["observability", "Observabilidad"],
   ["models", "Modelos"], ["system", "Sistema"], ["settings", "Ajustes"],
 ] as const;
 
 // 24px stroke icons (inline: CSP forbids remote assets).
 const ICON: Record<string, string> = {
+  today: "M4 6h16v14H4z M4 10h16 M8 3v5 M16 3v5 M8.5 15l2 2 4-4.5",
   home: "M3 11.5 12 4l9 7.5M5.5 9.5V20h13V9.5M10 20v-5h4v5",
   chat: "M4 5h16v11H9l-5 4V5Z M8 9.5h8 M8 12.5h5",
   knowledge: "M5 4h10l4 4v12H5V4Z M14 4v5h5 M8.5 13h7 M8.5 16.5h5",
@@ -34,7 +36,7 @@ type Tab = (typeof TABS)[number][0];
 
 function App() {
   const [user, setUser] = useState<string | null | undefined>(undefined); // undefined = checking
-  const [tab, setTab] = useState<Tab>(() => (TABS.some(([k]) => "#" + k === location.hash) ? location.hash.slice(1) as Tab : "home"));
+  const [tab, setTab] = useState<Tab>(() => (TABS.some(([k]) => "#" + k === location.hash) ? location.hash.slice(1) as Tab : "today"));
   const [logo, setLogo] = useState<LogoState>("idle");
   const [localOnly, setLocalOnly] = useState<boolean | null>(null);
 
@@ -45,6 +47,15 @@ function App() {
       .catch(() => setUser(null));
   }, []);
   useEffect(() => { history.replaceState(null, "", "#" + tab); }, [tab]);
+  // Real hash navigation (e.g. a "Ver en Hoy" link in Chat) fires hashchange; follow it.
+  useEffect(() => {
+    const onHash = () => {
+      const k = location.hash.slice(1);
+      if (TABS.some(([kk]) => kk === k)) setTab(k as Tab);
+    };
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
+  }, []);
   // Re-read on tab change so the badge follows a toggle made in Ajustes.
   useEffect(() => {
     if (!user) return;
@@ -62,7 +73,7 @@ function App() {
   return (
     <div className="shell">
       <a className="skip" href="#main">Saltar al contenido</a>
-      <header className="topbar">
+      <header className="topbar" data-state={logo}>
         <div className="brand" title={STATE_LABEL[logo]}>
           <Logo state={logo} size={36} />
           <div><strong>Alice</strong><small aria-live="polite">{STATE_LABEL[logo]}</small></div>
@@ -84,6 +95,7 @@ function App() {
         ))}
       </nav>
       <main className="content" id="main" tabIndex={-1}>
+        {tab === "today" && <Today />}
         {tab === "home" && <div className="page"><LiveMap /></div>}
         {/* Chat stays mounted so a conversation or stream survives tab switches. */}
         <div hidden={tab !== "chat"} className="fill"><Chat setLogo={setLogo} /></div>

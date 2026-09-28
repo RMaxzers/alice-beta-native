@@ -174,7 +174,76 @@ export function SettingsPage() {
             <Fragment key={k}><dt>{k}</dt><dd className={v ? "ok-text" : "muted"}>{v ? "habilitada" : "deshabilitada"}</dd></Fragment>))}</dl>
           <p className="muted small-text">Su estado real (credencial, conexión) se ve en Sistema.</p>
         </div>
+        <MemoryCard />
       </>}
     </section>
+  );
+}
+
+// ------------------------------------------------------------------ Memory
+type MemoryStatus = { enabled: boolean; user_enabled: boolean; sidecar_healthy: boolean; count: number | null };
+type MemoryItem = { id: string; text: string; context: string; date: string };
+type MemoryList = { items: MemoryItem[]; total: number };
+
+function MemoryCard() {
+  const [st, stErr, loadSt] = useLoad<MemoryStatus>("/api/memory/status");
+  const [q, setQ] = useState("");
+  const [list, setList] = useState<MemoryList | null>(null);
+  const [listErr, setListErr] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const loadList = (query: string) =>
+    api<MemoryList>(`/api/memory?limit=50${query ? `&q=${encodeURIComponent(query)}` : ""}`)
+      .then((d) => { setList(d); setListErr(""); }).catch((e) => setListErr(errMsg(e)));
+  useEffect(() => { loadList(""); }, []);
+
+  async function toggleMemory(v: boolean) {
+    setBusy(true);
+    try { await api("/api/memory/toggle", "POST", { enabled: v }); } catch (e) { setListErr(errMsg(e)); }
+    setBusy(false); loadSt();
+  }
+
+  async function forget(id: string) {
+    setBusy(true);
+    try { await api(`/api/memory/${id}`, "DELETE"); await loadList(q); loadSt(); }
+    catch (e) { setListErr(errMsg(e)); }
+    setBusy(false);
+  }
+
+  return (
+    <div className="card">
+      <h2>Memoria</h2>
+      {stErr && <p className="error" role="alert">{stErr}</p>}
+      {st && <>
+        <p>
+          <span className={`badge ${st.sidecar_healthy ? "ok-text" : "error"}`}>{st.sidecar_healthy ? "sidecar activo" : "sidecar no disponible"}</span>
+          {st.count != null && <span className="muted small-text"> · {st.count} recuerdo(s)</span>}
+        </p>
+        <label className="switch">
+          <input type="checkbox" checked={st.user_enabled} disabled={busy} onChange={(e) => toggleMemory(e.target.checked)} />
+          <span><strong>Recordar conversaciones</strong> — Alice guarda hechos breves de tus chats locales para usarlos como contexto en tu
+            próxima consulta. Es información local y privada: nunca sale de este equipo ni se envía a la nube.</span>
+        </label>
+      </>}
+      <div className="row wrap" style={{ marginTop: 12 }}>
+        <input type="search" placeholder="Buscar en tus recuerdos…" value={q}
+          onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === "Enter" && loadList(q)} />
+        <button className="ghost small" onClick={() => loadList(q)}>Buscar</button>
+      </div>
+      {listErr && <p className="error" role="alert">{listErr}</p>}
+      {list && (list.items.length === 0 ? <p className="muted small-text">No hay recuerdos guardados.</p> : (
+        <ul className="action-log">
+          {list.items.map((mm) => (
+            <li key={mm.id}>
+              <p>{mm.text}</p>
+              <div className="row between">
+                <span className="muted small-text">{mm.context}{mm.date ? ` · ${fmtTime(mm.date)}` : ""}</span>
+                <button className="ghost small danger" disabled={busy} onClick={() => forget(mm.id)}>Olvidar</button>
+              </div>
+            </li>
+          ))}
+        </ul>
+      ))}
+    </div>
   );
 }

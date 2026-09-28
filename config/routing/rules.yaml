@@ -1,6 +1,16 @@
 # Deterministic routing rules, evaluated in order. First match wins.
 # Patterns are case-insensitive Python regexes over the accent-stripped message.
 rules:
+# Explicit task-management verbs are unambiguous: they win over topic words inside the task title.
+- route: AUTOMATION
+  category: tasks
+  requires_tools: true
+  patterns:
+  - \b(crea|creame|crear|agrega|agregame|agregar|anade|anota|apunta|registra) (una |la |otra )?(nueva )?tarea\b
+  - \b(recuerdame|recordarme)\b
+  - \bmarca(r)? .*\bcomo (hecha|hecho|completada|completado|terminada|terminado|lista|listo)\b
+  - \b(organiza|planifica|ordena) (mi|el) dia\b|\bque tengo (para )?hoy\b|\bmis (tareas|pendientes)\b
+  - \b(cambia|mueve|pospon|posterga|reprograma) (la )?tarea\b
 - route: WEB_RESEARCH
   category: web
   requires_web: true
@@ -36,7 +46,7 @@ rules:
   category: logs
   requires_tools: true
   patterns:
-  - \b(el|este|del|los) logs?\b|\berror(es)? mas frecuentes?\b|\bpatrones de error\b|\bsegun el log\b
+  - \b(el|este|estos|del|los) logs?\b|\berror(es)? mas frecuentes?\b|\bpatrones de error\b|\bsegun el log\b
 - route: STRUCTURED_QUERY
   category: tabular
   requires_sql: true
@@ -56,6 +66,7 @@ rules:
   requires_tools: true
   patterns:
   - \b(automatiza|programa una tarea|crea una tarea|recordatorio|cada (dia|hora|semana) (ejecuta|haz))\b
+  - \bcrea(r)? (un )?seguimiento\b
 - route: CLOUD_POWERFUL
   category: complex
   patterns:
