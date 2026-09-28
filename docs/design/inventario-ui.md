@@ -8,7 +8,7 @@ Archivo Figma de línea base: https://www.figma.com/design/viXyIiRHGmSCMjfsRjPAF
 
 - Demo aislada, solo desarrollo: `cd apps/web && npm run demo` → `http://127.0.0.1:5174`. Sirve la SPA real con `/api/*` respondido por `apps/web/demo/mock.ts` (fixtures sintéticos de `data/samples`). No arranca backend, no lee `storage/`, no entra en `npm run build`.
 - Estados: `GET /__demo/set?mode=normal|empty|error&auth=1|0`. Login demo: cualquier usuario, contraseña `demo`.
-- Arnés `http://127.0.0.1:5174/__demo/harness`: carga la app en un iframe de tamaño fijo (viewport exacto aunque la ventana no se pueda redimensionar) y expone `load(w,h,hash,q)`, `click(texto)`, `send(mensaje)` y `cap(captureId)`. El `captureId` sale de `generate_figma_design` (MCP de Figma) y se sondea con la misma herramienta.
+- Arnés `http://127.0.0.1:5174/__demo/harness`: carga la app en un iframe de tamaño fijo (viewport exacto aunque la ventana no se pueda redimensionar) y expone `load(w,h,hash,q)`, `click(texto)`, `sendMessage(mensaje)` y `cap(captureId)`. El `captureId` sale de `generate_figma_design` (MCP de Figma) y se sondea con la misma herramienta.
 - La app usa `location.hash` para navegar, así que el flujo `#figmacapture=` no sirve; se llama a `window.figma.captureForDesign` dentro del iframe.
 
 ## Matriz de pantallas y estados

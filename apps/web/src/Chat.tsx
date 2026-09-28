@@ -23,9 +23,21 @@ type Preview = {
 type Done = { request_id: string; provider: string | null; model: string | null; latency_s: number; queue_s: number; retrieval_s: number;
   tokens_out: number | null; cost_usd: number | null; cost_state: string; privacy: Privacy | null };
 type Body = { message: string; privacy: Privacy; history: { role: string; content: string; privacy: Privacy }[];
-  document_ids: string[]; force_route?: string; authorization_ticket?: string };
-type Status = "streaming" | "done" | "error" | "cancelled" | "consent";
-type ActionCard = { action: Action | null; task: Task | null; event_id: number | null; message: string; undone?: boolean; undoError?: string };
+  document_ids: string[]; force_route?: string; authorization_ticket?: string; conversation_id?: string; client_request_id?: string };
+type Status = "streaming" | "done" | "error" | "cancelled" | "consent" | "interrupted";
+// API contract v1 (alice-coordination/API_CONTRACT.md): server-side conversations and file actions.
+type FileOp = {
+  operation_id: string; tool: string; destination: string; executor_name: string; status: "running" | "done" | "failed" | "needs_review";
+  verification: { verified: boolean; sha256: string; bytes: number } | null; error: string | null; created_at: string;
+};
+type ConvSummary = { conversation_id: string; title: string; privacy: Privacy; updated_at: string };
+type StoredMsg = { message_id: string; role: "user" | "assistant"; content: string; privacy: Privacy; status: string };
+type Identity = { api_contract: string; executor_name: string; file_action: { enabled: boolean; root_label: string } };
+type ActionCard = { action: Action | FileOp | null; task: Task | null; event_id: number | null; message: string; undone?: boolean; undoError?: string };
+const isFileOp = (a: Action | FileOp | null): a is FileOp => !!a && "operation_id" in a;
+const FILE_OP_LABEL: Record<FileOp["status"], string> = {
+  running: "En ejecución", done: "Resultado verificado", failed: "Error", needs_review: "Resultado desconocido: revisar",
+};
 type TaskSuggestion = { kind: "create_task"; title: string; description?: string; due_date?: string | null; priority?: Priority;
   sources?: { kind: "log"; document_id: string; line: number }[] };
 type SuggestionCard = { suggestion: TaskSuggestion; note: string; state: "idle" | "creating" | "created" | "error";
@@ -47,7 +59,13 @@ const PRIV_HELP: Record<Privacy, string> = {
   INTERNAL: "Procesamiento local por defecto; salida solo con autorización puntual.",
   PUBLIC: "Apta para cloud/web si está habilitado y hay presupuesto. No rebaja adjuntos ni historial.",
 };
-const safeUrl = (u?: string | null) => !!u && /^(https?:\/\/|\/api\/documents\/)/i.test(u);
+const STORED_NOTE: Record<string, string | undefined> = {
+  failed: "Este turno terminó con error.",
+  interrupted: "Turno interrumpido: revisa sus acciones antes de volver a pedirlo.",
+  running: "Turno aún en curso en el servidor.",
+  awaiting_authorization: "Quedó pendiente de autorización; vuelve a enviarlo para decidir.",
+};
+const safeUrl =(u?: string | null) => !!u && /^(https?:\/\/|\/api\/documents\/)/i.test(u);
 const uid = () => Math.random().toString(36).slice(2);
 type MicStatus = "idle" | "recording" | "transcribing";
 type ListenState = { status: "idle" | "loading" | "playing" | "error"; error?: string };
@@ -89,8 +107,46 @@ export function Chat({ setLogo }: { setLogo: (s: LogoState) => void }) {
   const [listen, setListen] = useState<Record<string, ListenState>>({});
   const playingRef = useRef<{ id: string; audio: HTMLAudioElement; url: string } | null>(null);
 
+  // v1 backend (identity answers api_contract "1") keeps conversations server-side; older backends need `history`.
+  const [identity, setIdentity] = useState<Identity | null>(null);
+  const v1 = identity?.api_contract === "1";
+  const [convId, setConvId] = useState<string | null>(null);
+  const [convs, setConvs] = useState<ConvSummary[]>([]);
+  const [ops, setOps] = useState<FileOp[]>([]);
+  const [convErr, setConvErr] = useState("");
+
   const loadDocs = () => api<Doc[]>("/api/documents").then((d) => setDocs(d.filter((x) => x.status === "ready"))).catch(() => setDocs([]));
   useEffect(() => { loadDocs(); }, []);
+  useEffect(() => { api<Identity>("/api/identity").then(setIdentity).catch(() => setIdentity(null)); }, []);
+  const loadConvs = () => api<ConvSummary[]>("/api/conversations").then(setConvs).catch((e) => setConvErr(errMsg(e)));
+  useEffect(() => { if (v1) loadConvs(); }, [v1]);
+  useEffect(() => {
+    if (!v1 || !convId) { setOps([]); return; }
+    api<FileOp[]>(`/api/file-actions?conversation_id=${encodeURIComponent(convId)}`).then(setOps).catch(() => setOps([]));
+  }, [v1, convId, busy]);
+
+  async function openConversation(id: string) {
+    setConvErr("");
+    try {
+      const c = await api<{ conversation_id: string; messages: StoredMsg[] }>(`/api/conversations/${encodeURIComponent(id)}`);
+      // Stored turns carry text only; route, sources and action cards are not rehydrated yet (request R-03).
+      const out: Msg[] = [];
+      c.messages.forEach((s, i) => {
+        const note = STORED_NOTE[s.status];
+        out.push({ id: s.message_id, role: s.role, content: s.content, privacy: s.privacy, status: s.status === "complete" ? "done" : "interrupted",
+          error: s.role === "assistant" ? note : undefined, tools: [], sources: [], actions: [], suggestions: [] });
+        // A turn that never produced an answer (interrupted, failed early, awaiting authorization) still gets a visible note.
+        if (s.role === "user" && note && c.messages[i + 1]?.role !== "assistant")
+          out.push({ id: s.message_id + "-note", role: "assistant", content: "", privacy: s.privacy, status: "interrupted", error: note,
+            tools: [], sources: [], actions: [], suggestions: [] });
+      });
+      setMsgs(out);
+      setConvId(c.conversation_id);
+      setLogo("idle");
+    } catch (e) { setConvErr(errMsg(e)); }
+  }
+
+  function newConversation() { setMsgs([]); setConvId(null); setLogo("idle"); }
   useEffect(() => { fetchVoiceStatus().then(setVoiceStatus).catch(() => setVoiceStatus(null)); }, []);
   useEffect(() => { endRef.current?.scrollIntoView({ block: "end" }); }, [msgs]);
   useEffect(() => () => { playingRef.current?.audio.pause(); recorderRef.current?.stream.getTracks().forEach((t) => t.stop()); }, []);
@@ -176,7 +232,10 @@ export function Chat({ setLogo }: { setLogo: (s: LogoState) => void }) {
     ...(histPriv.some((p) => RANK[p] > RANK[privacy]) ? ["historial"] : []),
   ];
 
-  async function stream(id: string, body: Body) {
+  async function stream(id: string, req: Body) {
+    // Every POST is a new request for the server: a fresh idempotency key, also for the authorized/local retry
+    // (reusing it with a different payload is a 409). The conversation id learned mid-stream is carried over.
+    const body: Body = v1 ? { ...req, client_request_id: crypto.randomUUID(), ...(convId && !req.conversation_id ? { conversation_id: convId } : {}) } : req;
     const ac = new AbortController();
     ctrl.current = ac;
     setLogo("routing");
@@ -198,6 +257,10 @@ export function Chat({ setLogo }: { setLogo: (s: LogoState) => void }) {
           if (!line) continue;
           const ev = JSON.parse(line);
           switch (ev.type) {
+            case "conversation":
+              setConvId(ev.conversation_id);
+              patch(id, (m) => ({ privacy: strictest(m.privacy, ev.privacy) }));
+              break;
             case "route":
               setLogo(LOGO_FOR_ROUTE[ev.decision.route] ?? "local");
               patch(id, () => ({ decision: ev.decision, raisedBy: ev.raised_by, privacy: ev.decision.privacy }));
@@ -229,6 +292,7 @@ export function Chat({ setLogo }: { setLogo: (s: LogoState) => void }) {
     }
     ctrl.current = null;
     patch(id, () => ({ status: final }));
+    if (v1) loadConvs();
     setLogo(final === "error" ? "error" : final === "consent" ? "cloud" : "idle");
   }
 
@@ -239,7 +303,9 @@ export function Chat({ setLogo }: { setLogo: (s: LogoState) => void }) {
     if (!window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
       setStreak((n) => n + 1);
     }
-    const body: Body = { message, privacy, history: history(msgs), document_ids: attached };
+    const body: Body = v1
+      ? { message, privacy, history: [], document_ids: attached, ...(convId ? { conversation_id: convId } : {}) }
+      : { message, privacy, history: history(msgs), document_ids: attached };
     const aid = uid();
     setMsgs((ms) => [...ms,
       { id: uid(), role: "user", content: message, privacy, status: "done", tools: [], sources: [], actions: [], suggestions: [],
@@ -364,7 +430,7 @@ export function Chat({ setLogo }: { setLogo: (s: LogoState) => void }) {
                 <option value="PRIVATE">PRIVATE</option><option value="INTERNAL">INTERNAL</option><option value="PUBLIC">PUBLIC</option>
               </select>
             </label>
-            <details className="attach">
+            <details className="attach" name="composer-pop">
               <summary>Adjuntos ({attached.length})</summary>
               <div className="pop">
                 {docs.length === 0 ? <p className="muted">No hay documentos listos. Súbelos en Conocimiento.</p> :
@@ -377,10 +443,37 @@ export function Chat({ setLogo }: { setLogo: (s: LogoState) => void }) {
                 <button type="button" className="ghost small" onClick={loadDocs}>Actualizar lista</button>
               </div>
             </details>
+            {v1 && (
+              <details className="attach" name="composer-pop" onToggle={(e) => { if ((e.target as HTMLDetailsElement).open) loadConvs(); }}>
+                <summary>Conversaciones ({convs.length})</summary>
+                <div className="pop conv-list">
+                  {convErr && <p className="error small-text" role="alert">{convErr}</p>}
+                  {convs.length === 0 ? <p className="muted">Aún no hay conversaciones guardadas.</p> :
+                    <ul>{convs.map((c) => (
+                      <li key={c.conversation_id}>
+                        <button type="button" className={`ghost small${c.conversation_id === convId ? " is-active" : ""}`} disabled={busy}
+                          aria-current={c.conversation_id === convId ? "true" : undefined} onClick={(e) => { e.currentTarget.closest("details")?.removeAttribute("open"); openConversation(c.conversation_id); }}>
+                          {c.title}
+                        </button> <PrivBadge p={c.privacy} /> <span className="muted small-text">{new Date(c.updated_at).toLocaleString("es-ES")}</span>
+                      </li>))}</ul>}
+                </div>
+              </details>
+            )}
+            {v1 && convId && (
+              <details className="attach" name="composer-pop">
+                <summary>Acciones ({ops.length})</summary>
+                <div className="pop op-list">
+                  <p className="muted small-text">Equipo ejecutor: <strong>{identity?.executor_name}</strong>
+                    {identity && !identity.file_action.enabled && " · carpeta autorizada sin configurar"}</p>
+                  {ops.length === 0 ? <p className="muted">Esta conversación no tiene acciones sobre archivos.</p> :
+                    ops.map((op) => <FileOpCard key={op.operation_id} op={op} />)}
+                </div>
+              </details>
+            )}
             <span className="muted small-text">Efectiva: <PrivBadge p={effective} />
               {raisedBy.length > 0 && <> elevada por {raisedBy.join(" y ")}</>}</span>
             <span className="spacer" />
-            {msgs.length > 0 && !busy && <button type="button" className="ghost small" onClick={() => { setMsgs([]); setLogo("idle"); }}>Nueva conversación</button>}
+            {msgs.length > 0 && !busy && <button type="button" className="ghost small" onClick={newConversation}>Nueva conversación</button>}
             {busy
               ? <button type="button" className="danger" onClick={() => ctrl.current?.abort()}>Cancelar</button>
               : <button className="primary" disabled={!text.trim()}>Enviar</button>}
@@ -404,7 +497,26 @@ function cost(m: Msg): string {
   return d ? "desconocido" : "—";
 }
 
+function FileOpCard({ op, message }: { op: FileOp; message?: string }) {
+  const tone = op.status === "done" ? "ok" : op.status === "failed" ? "danger" : op.status === "needs_review" ? "warn" : "muted";
+  return (
+    <div className={`chat-card chat-card-${tone}`} role={op.status === "failed" ? "alert" : "status"}>
+      <p><strong>{FILE_OP_LABEL[op.status]}:</strong> {message ?? op.error ?? op.destination}</p>
+      <dl className="op-facts small-text">
+        <dt>Destino</dt><dd><code>{op.destination}</code></dd>
+        <dt>Equipo</dt><dd>{op.executor_name}</dd>
+        {op.verification && <><dt>Comprobación</dt><dd>
+          {op.verification.verified ? "contenido releído y coincide" : "no coincide"} · {op.verification.bytes} B · SHA-256 <code>{op.verification.sha256.slice(0, 12)}…</code></dd></>}
+        {op.error && op.status !== "failed" && <><dt>Detalle</dt><dd>{op.error}</dd></>}
+        <dt>Operación</dt><dd><code>{op.operation_id}</code></dd>
+      </dl>
+      {op.status === "needs_review" && <p className="muted small-text">No se sabe si el archivo quedó bien. No repitas la petición sin revisar la carpeta.</p>}
+    </div>
+  );
+}
+
 function ActionResultCard({ a, onUndo }: { a: ActionCard; onUndo: () => void }) {
+  if (isFileOp(a.action)) return <FileOpCard op={a.action} message={a.message} />;
   const task = a.task;
   const when = task ? `${task.title}${task.due_date ? ` · ${task.due_date}` : ""}` : null;
   const canUndo = !a.undone && a.event_id != null;

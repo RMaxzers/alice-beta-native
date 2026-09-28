@@ -13,10 +13,18 @@ Rama `feat/alice-ui-figma` · base `bc37fd4` · worktree `C:\Users\cuent\alice-u
 
 `API_CONTRACT.md` v1 de Codex aceptado para la web, con las solicitudes R-01..R-03 registradas en `CLAUDE_STATUS.md`.
 
+## UI-04 · parte funcional (contrato v1, sin cambios visuales de la maqueta)
+
+- `Chat.tsx` detecta v1 con `GET /api/identity` (`api_contract: "1"`). Con v1 envía solo el turno actual, `conversation_id` y un `client_request_id` nuevo por petición (también al autorizar o continuar en local); sin v1 conserva el envío de `history` del backend anterior.
+- Evento `conversation`: fija la conversación activa. «Conversaciones» (desplegable del compositor) lista y reabre conversaciones del servidor; los turnos interrumpidos, fallidos o pendientes de autorización muestran una nota.
+- Acciones de archivo: el evento `action` con `operation_id` se pinta como tarjeta propia (en ejecución / resultado verificado / error / resultado desconocido) con destino, equipo, bytes y SHA-256. «Acciones» lista `GET /api/file-actions?conversation_id=` con el equipo ejecutor.
+- Probado solo contra la demo (`npm run demo`, contrato v1 simulado; `?contract=0` simula el backend anterior). **No probado contra el backend real de Codex** (sin commits integrables).
+- Limitación conocida: al reabrir, las fuentes, ruta y tarjetas no se rehidratan (depende de R-03).
+
 ## Pendiente
 
 - UI-03: bloqueado hasta que el usuario entregue el enlace de su maqueta.
-- UI-04: conversaciones recuperables, compositor, fuentes y vista de acciones contra el contrato v1; puede empezar la parte funcional sin la maqueta.
+- UI-04 visual: según la maqueta.
 - UI-05/06: tras UI-04 y commits listos de Codex.
 
 ## Punto de reanudación

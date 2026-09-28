@@ -2,7 +2,8 @@
 // data/samples; never touches the real backend, storage or any private data. Loaded only by
 // vite.demo.config.ts, so it cannot reach the production build.
 //
-// Scenario switch: GET /__demo/set?mode=normal|empty|error&auth=1|0 (state lives in this process).
+// Scenario switch: GET /__demo/set?mode=normal|empty|error&auth=1|0&contract=1|0 (state lives in this process).
+// contract=1 (default) serves API contract v1 (conversations, identity, file actions); 0 mimics the pre-v1 backend.
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import type { IncomingMessage, ServerResponse } from "node:http";
@@ -13,7 +14,29 @@ const NOW = new Date("2026-09-28T10:30:00-03:00");
 const iso = (minAgo = 0) => new Date(NOW.getTime() - minAgo * 60_000).toISOString();
 const day = (d: number) => new Date(NOW.getTime() + d * 86_400_000).toISOString().slice(0, 10);
 
-const state = { mode: "normal" as "normal" | "empty" | "error", auth: true };
+const state = { mode: "normal" as "normal" | "empty" | "error", auth: true, contract: true };
+
+// ------------------------------------------------------------------ contract v1 (alice-coordination/API_CONTRACT.md)
+type Stored = { message_id: string; role: "user" | "assistant"; content: string; privacy: string; created_at: string; status: string; client_request_id: string };
+type Conv = { conversation_id: string; title: string; privacy: string; created_at: string; updated_at: string; messages: Stored[] };
+const RANKP: Record<string, number> = { PUBLIC: 0, INTERNAL: 1, PRIVATE: 2 };
+const stricter = (a: string, b: string) => (RANKP[b] > RANKP[a] ? b : a);
+const convs = new Map<string, Conv>();
+const turns = new Map<string, { hash: string; events: object[] }>(); // client_request_id → replay
+const fileOps: (Record<string, unknown> & { conversation_id: string })[] = [];
+let n = 0;
+const nid = (p: string) => `${p}-demo-${++n}`;
+function seedConversation() {
+  const c: Conv = { conversation_id: "conv-demo-dhcp", title: "Red de invitados y DHCP", privacy: "INTERNAL", created_at: iso(300), updated_at: iso(240), messages: [] };
+  const add = (role: Stored["role"], content: string, status: string, ago: number) =>
+    c.messages.push({ message_id: nid("msg"), role, content, privacy: "INTERNAL", created_at: iso(ago), status, client_request_id: nid("req") });
+  add("user", "¿Qué VLAN usa la red de invitados?", "complete", 300);
+  add("assistant", "La red de invitados usa la **VLAN 30** con arrendamiento DHCP de **4 horas**.", "complete", 299);
+  add("user", "Resume el log de ingestión", "interrupted", 240);
+  convs.set(c.conversation_id, c);
+}
+seedConversation();
+const summary = ({ messages: _m, ...c }: Conv) => c;
 
 // ------------------------------------------------------------------ fixtures
 const docs = [
@@ -176,7 +199,72 @@ const routes: Record<string, (q: URLSearchParams, body: any) => unknown> = {
   "POST /api/memory/toggle": () => ({ ok: true }),
   "GET /api/voice/status": () => ({ enabled: true, tts: { reachable: true }, stt: { model: "whisper-small", device: "cuda", loaded: false } }),
   "POST /api/tasks/reorder": () => ({ ok: true, event_id: 1 }),
+  "GET /api/identity": () => {
+    if (!state.contract) throw [404, "Not Found"];
+    return { backend_id: "demo-backend", executor_name: "PC-DEMO", api_contract: "1", file_action: { enabled: true, root_label: "Mi carpeta de Alice" } };
+  },
+  "GET /api/conversations": () => [...convs.values()].sort((a, b) => b.updated_at.localeCompare(a.updated_at)).map(summary),
+  "POST /api/conversations": (_q, b) => {
+    const c: Conv = { conversation_id: nid("conv"), title: b?.title ?? "Nueva conversación", privacy: b?.privacy ?? "PRIVATE",
+      created_at: new Date().toISOString(), updated_at: new Date().toISOString(), messages: [] };
+    convs.set(c.conversation_id, c); return summary(c);
+  },
+  "GET /api/file-actions": (q) => fileOps.filter((o) => !q.get("conversation_id") || o.conversation_id === q.get("conversation_id")).reverse(),
 };
+
+// Chat through the v1 contract: conversation event first, server-kept history, idempotent client_request_id.
+function fileOpFor(convId: string, filename: string) {
+  const name = filename.toLowerCase();
+  const status = name.includes("existente") ? "failed" : name.includes("revisar") ? "needs_review" : "done";
+  const op = {
+    operation_id: nid("op"), owner: "demo", conversation_id: convId, tool: "file.create_text", destination: `C:\\AliceDemo\\${filename}`,
+    executor_name: "PC-DEMO", status, privacy: "INTERNAL", created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+    verification: status === "done" ? { verified: true, sha256: "9f2c5e0b7a41d3c8e6f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3", bytes: 214 } : null,
+    error: status === "failed" ? "El archivo ya existe; no se sobrescribe" : status === "needs_review" ? "No se pudo confirmar la escritura" : null,
+  };
+  fileOps.push(op);
+  return op;
+}
+
+function chatV1(body: any): { status: number; events?: object[]; detail?: string } {
+  const key = body?.client_request_id;
+  if (!key) return { status: 422, detail: "client_request_id requerido" };
+  const { client_request_id: _k, ...rest } = body;
+  const hash = JSON.stringify(rest);
+  const old = turns.get(key);
+  if (old) return old.hash === hash ? { status: 200, events: old.events } : { status: 409, detail: "client_request_id ya vinculado a otra petición" };
+  let c = body.conversation_id ? convs.get(body.conversation_id) : undefined;
+  if (body.conversation_id && !c) return { status: 404, detail: "Conversación no encontrada" };
+  const at = new Date().toISOString();
+  if (!c) {
+    c = { conversation_id: nid("conv"), title: String(body.message).slice(0, 80), privacy: body.privacy, created_at: at, updated_at: at, messages: [] };
+    convs.set(c.conversation_id, c);
+  }
+  c.privacy = stricter(c.privacy, body.privacy);
+  const conv = c;
+  const file = /guarda .* como ([\w.-]+\.(?:md|txt))/i.exec(body.message)?.[1];
+  let events: any[];
+  if (file) {
+    const answer = [...conv.messages].reverse().find((m) => m.role === "assistant" && m.status === "complete");
+    if (!answer) events = [{ type: "error", code: "no_summary", message: "Esta conversación todavía no tiene una respuesta completa que guardar." }];
+    else {
+      const op = fileOpFor(conv.conversation_id, file);
+      const msg = op.status === "done" ? `Archivo creado y verificado: ${op.destination} en ${op.executor_name}.` : `Operación ${op.operation_id} en ${op.executor_name}: ${op.error}.`;
+      events = [{ type: "action", action: op, message: msg }, ...(op.status === "done" ? [done()] : [{ type: "error", code: "action_unverified", message: msg }])];
+    }
+  } else events = chatScript(body.message, body);
+  for (const ev of events) if (ev.type === "route") conv.privacy = stricter(conv.privacy, ev.decision.privacy);
+  const last = events[events.length - 1] as any;
+  const status = last.type === "error" ? "failed" : last.type === "authorization_required" ? "awaiting_authorization" : "complete";
+  if (last.type === "done") Object.assign(last, { conversation_id: conv.conversation_id, client_request_id: key, privacy: conv.privacy, status });
+  events = [{ type: "conversation", conversation_id: conv.conversation_id, client_request_id: key, privacy: conv.privacy }, ...events];
+  const text = events.filter((e) => e.type === "token").map((e) => e.text).join("") + events.filter((e) => e.type === "action").map((e) => e.message).join("\n");
+  conv.messages.push({ message_id: nid("msg"), role: "user", content: body.message, privacy: conv.privacy, created_at: at, status, client_request_id: key });
+  if (text) conv.messages.push({ message_id: nid("msg"), role: "assistant", content: text, privacy: conv.privacy, created_at: at, status, client_request_id: key });
+  conv.updated_at = at;
+  turns.set(key, { hash, events });
+  return { status: 200, events };
+}
 
 // ------------------------------------------------------------------ chat (NDJSON stream)
 const route = (r: string, reason: string, privacy = "INTERNAL", extra = {}) =>
@@ -185,8 +273,14 @@ const done = (privacy = "INTERNAL") => ({ type: "done", request_id: "req-demo-ch
   latency_s: 2.4, queue_s: 0.1, retrieval_s: 0.3, tokens_out: 96, cost_usd: 0, cost_state: "local", privacy });
 const words = (s: string) => s.split(/(?<= )/).map((text) => ({ type: "token", text }));
 
-function chatScript(msg: string): object[] {
+function chatScript(msg: string, body: any = {}): object[] {
   const m = msg.toLowerCase();
+  if (body.authorization_ticket)
+    return [route("CLOUD_CHEAP", "autorizado una vez", "INTERNAL", { model_alias: "cloud-cheap" }),
+      ...words("Respuesta de demostración desde la nube tras tu autorización (datos sintéticos)."),
+      { ...done(), provider: "openrouter", model: "demo/cheap-model", cost_usd: 0.0003, cost_state: "known" }];
+  if (body.force_route === "LOCAL_SIMPLE" || body.force_route === "LOCAL_RAG")
+    return [route(body.force_route, "continuar localmente"), ...words("Sin internet: respondo solo con lo que hay en este equipo."), done()];
   if (m.includes("falla") || m.includes("error"))
     return [route("LOCAL_SIMPLE", "pregunta general"), { type: "error", code: "provider_unavailable", message: "Ollama no respondió a tiempo" }];
   if (m.includes("nube") || m.includes("actual"))
@@ -227,7 +321,7 @@ async function click(txt, sel = "button") {
   const b = [...W().document.querySelectorAll(sel)].find((x) => x.textContent.trim() === txt || x.getAttribute("aria-label") === txt);
   if (!b) return "no " + txt; b.click(); await sleep(1200); return "ok";
 }
-async function send(text) {
+async function sendMessage(text) {
   const w = W(), d = w.document, ta = d.querySelector('textarea[aria-label="Mensaje"]');
   Object.getOwnPropertyDescriptor(w.HTMLTextAreaElement.prototype, "value").set.call(ta, text);
   ta.dispatchEvent(new w.Event("input", { bubbles: true })); await sleep(200);
@@ -246,7 +340,20 @@ function send(res: ServerResponse, status: number, body: unknown, type = "applic
   res.statusCode = status; res.setHeader("Content-Type", type);
   res.end(typeof body === "string" || Buffer.isBuffer(body) ? body : JSON.stringify(body));
 }
-const readBody = (req: IncomingMessage) => new Promise<string>((ok) => { let s = ""; req.on("data", (c) => (s += c)); req.on("end", () => ok(s)); });
+const readBody = (req: IncomingMessage) => new Promise<string>((ok, fail) => {
+  let s = "";
+  req.on("data", (c) => (s += c));
+  req.on("end", () => ok(s));
+  req.on("error", fail);
+  req.on("aborted", () => fail(new Error("petición abortada")));
+});
+// 0.5 s of 8-bit mono silence at 8 kHz: a valid WAV so "Escuchar" plays without a TTS server.
+function silentWav() {
+  const n = 4000, b = Buffer.alloc(44 + n, 0x80);
+  b.write("RIFF", 0); b.writeUInt32LE(36 + n, 4); b.write("WAVEfmt ", 8); b.writeUInt32LE(16, 16); b.writeUInt16LE(1, 20); b.writeUInt16LE(1, 22);
+  b.writeUInt32LE(8000, 24); b.writeUInt32LE(8000, 28); b.writeUInt16LE(1, 32); b.writeUInt16LE(8, 34); b.write("data", 36); b.writeUInt32LE(n, 40);
+  return b;
+}
 
 async function handle(req: IncomingMessage, res: ServerResponse) {
   const url = new URL(req.url!, "http://demo");
@@ -259,12 +366,26 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
   if (state.mode === "error" && ["/api/today", "/api/documents"].includes(path)) return send(res, 503, { detail: "El backend de demostración simula una caída" });
 
   if (method === "POST" && path === "/api/chat") {
+    const r = state.contract ? chatV1(body) : { status: 200, events: chatScript(body?.message ?? "", body ?? {}) };
+    if (r.status !== 200) return send(res, r.status, { detail: r.detail });
     res.setHeader("Content-Type", "application/x-ndjson");
-    for (const ev of chatScript(body?.message ?? "")) { res.write(JSON.stringify(ev) + "\n"); await new Promise((r) => setTimeout(r, 25)); }
+    for (const ev of r.events!) { res.write(JSON.stringify(ev) + "\n"); await new Promise((ok) => setTimeout(ok, 25)); }
     return res.end();
+  }
+  const conv = path.match(/^\/api\/conversations\/([^/]+)$/);
+  if (conv && method === "GET" && state.contract) {
+    const c = convs.get(decodeURIComponent(conv[1]));
+    return c ? send(res, 200, c) : send(res, 404, { detail: "Conversación no encontrada" });
   }
   const file = path.match(/^\/api\/documents\/([^/]+)\/file$/);
   if (file && files[file[1]]) return send(res, 200, readFileSync(resolve(SAMPLES, files[file[1]][0])), files[file[1]][1]);
+  // Upload/voice: accepted without reading the payload (nothing real is stored or transcribed).
+  if (method === "POST" && path === "/api/documents") {
+    docs.push({ ...docs[0], document_id: nid("doc"), original_name: "archivo-subido-demo.pdf", status: "pending", chunks: null, ingested_at: iso() });
+    return send(res, 201, { duplicate: false });
+  }
+  if (method === "POST" && path === "/api/voice/stt") return send(res, 200, { text: "¿Qué VLAN usa la red de invitados?" });
+  if (method === "POST" && path === "/api/voice/tts") return send(res, 200, silentWav(), "audio/wav");
   if (method === "POST" && path === "/api/tasks") return send(res, 201, { task: task(body?.title ?? "Nueva tarea", body ?? {}), event_id: 9 });
   if (method === "PATCH" && path.startsWith("/api/tasks/")) return send(res, 200, { task: task("Actualizada", { ...body, task_id: path.split("/").pop() }), event_id: 10 });
   if (method === "POST" && /^\/api\/(events\/\d+\/undo|egress\/.+\/approve|documents\/.+\/cancel)$/.test(path)) return send(res, 200, { ok: true });
@@ -273,7 +394,10 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
   const fn = routes[`${method} ${path}`];
   if (!fn) return send(res, 404, { detail: `Demo: sin fixture para ${method} ${path}` });
   try { return send(res, 200, fn(url.searchParams, body)); }
-  catch (e) { const [s, d] = e as [number, string]; return send(res, s, { detail: d }); }
+  catch (e) {
+    if (Array.isArray(e)) return send(res, e[0], { detail: e[1] }); // fixtures throw [status, detail]
+    return send(res, 500, { detail: String(e) });
+  }
 }
 
 export function demoApi(): Plugin {
@@ -290,6 +414,8 @@ export function demoApi(): Plugin {
           const mode = url.searchParams.get("mode"), auth = url.searchParams.get("auth");
           if (mode === "normal" || mode === "empty" || mode === "error") state.mode = mode;
           if (auth !== null) state.auth = auth === "1";
+          const contract = url.searchParams.get("contract");
+          if (contract !== null) state.contract = contract === "1";
           return send(res, 200, state);
         }
         if (!url.pathname.startsWith("/api/")) return next();
