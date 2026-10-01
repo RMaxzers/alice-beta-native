@@ -18,7 +18,9 @@ param(
   [Parameter(Mandatory)][string]$Destination,
   [switch]$Force,
   [int]$QdrantPort = 6343,
-  [switch]$KeepQdrant
+  [switch]$KeepQdrant,
+  [string]$MemoryPgBin = '',
+  [int]$MemoryPort = 55432
 )
 . "$PSScriptRoot\_common.ps1"
 $py = Join-Path $Root '.venv\Scripts\python.exe'
@@ -28,11 +30,33 @@ function Fail([int]$code, $m) { Write-Host "ERROR: $m" -ForegroundColor Red; exi
 $Backup = (Resolve-Path $Backup).Path
 $Destination = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($Destination)  # relative to the PS location, not the process cwd
 
+# Resolve junctions/8.3 names and check every known Alice worktree before creating a file.
+$knownRoots = [System.Collections.Generic.List[string]]::new()
+$knownRoots.Add((Join-Path $env:USERPROFILE 'alice'))
+$knownRoots.Add($Root)
+$worktrees = & git -C $Root worktree list --porcelain 2>$null
+foreach ($line in $worktrees) {
+  if ($line -match '^worktree (.+)$') { $knownRoots.Add($Matches[1]) }
+}
+$targetArgs = @($Destination)
+foreach ($knownRoot in $knownRoots) { $targetArgs += @('--known-root', $knownRoot) }
+Push-Location $Root
+try {
+  $canonical = & $py -m services.backup.validate_target @targetArgs
+  if ($LASTEXITCODE) { Fail 2 'El destino tiene junctions/8.3 sin normalizar o pertenece a una instalación/worktree Alice' }
+  $Destination = $canonical.Trim()
+} finally { Pop-Location }
+
 Step "Validando $Backup"
 $mf = Join-Path $Backup 'manifest.json'
 if (-not (Test-Path $mf)) { Fail 2 'manifest.json no existe' }
 $m = Get-Content $mf -Raw -Encoding utf8 | ConvertFrom-Json
-if ($m.format -ne 'alice-backup/1') { Fail 2 "formato de manifiesto desconocido: $($m.format)" }
+if ($m.format -notin 'alice-backup/1','alice-backup/2') { Fail 2 "formato de manifiesto desconocido: $($m.format)" }
+Push-Location $Root
+try {
+  & $py -m services.backup.validate $Backup
+  if ($LASTEXITCODE) { Fail 2 'Manifiesto inválido o rutas fuera del backup' }
+} finally { Pop-Location }
 $badSum = 0
 foreach ($f in $m.files) {
   $p = Join-Path $Backup $f.path
@@ -42,15 +66,10 @@ if ($badSum) { Fail 2 "$badSum archivo(s) no coinciden con el manifiesto" }
 Write-Host "  $(@($m.files).Count) archivos OK; creado $($m.created_utc); vector store $($m.vector_store.mode) qdrant $($m.vector_store.version); $($m.consistency)"
 
 Step "Salvaguardas del destino $Destination"
-$isLive = $Destination.TrimEnd('\') -ieq $Root.TrimEnd('\')
-if ($isLive) {
-  if (-not $Force) { Fail 2 'el destino es la instalación activa: usa -Force (y detén Alice antes)' }
-  if ((Test-Http 'http://127.0.0.1:8000/healthz' 3) -or (Test-Http 'http://127.0.0.1:6333/healthz' 3)) { Fail 2 'API o Qdrant activos: ejecuta Stop-Alice.ps1 antes de restaurar sobre la instalación activa' }
-  foreach ($d in 'storage\sqlite', 'storage\qdrant\data', 'data\raw', 'data\processed', 'data\verified') {
-    $p = Join-Path $Root $d
-    if (Test-Path $p) { $aside = "$p.pre-restore-$(Get-Date -Format yyyyMMdd-HHmmss)"; Move-Item $p $aside; Write-Host "  apartado $d -> $(Split-Path $aside -Leaf)" }
-  }
-} elseif ((Test-Path $Destination) -and (Get-ChildItem $Destination -Force | Select-Object -First 1)) {
+$isLive = $false # Every active installation and git worktree is rejected above, including descendants.
+if ((Test-Path $Destination) -and ((Get-Item -LiteralPath $Destination).Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+  Fail 2 'el destino es un enlace/junction'
+} elseif ((Test-Path $Destination) -and (Get-ChildItem -LiteralPath $Destination -Force | Select-Object -First 1)) {
   Fail 2 'el destino existe y no está vacío (no se sobrescribe nada)'
 }
 if (Get-NetTCPConnection -LocalPort $QdrantPort -State Listen -ErrorAction SilentlyContinue) { Fail 2 "el puerto $QdrantPort ya está en uso; elige otro con -QdrantPort" }
@@ -122,6 +141,18 @@ Write-Host ("  documentos={0} (ready={1}); filas chunks={2}; suma documents.chun
 if ($v.chunk_rows -ne $v.catalog_chunks -or $v.chunk_rows -ne $Script:qdrantPoints) { Write-Host '  FAIL: catálogo, fragmentos y vectores no coinciden' -ForegroundColor Red; $fail++ }
 if (@($v.missing_raw).Count) { Write-Host "  FAIL: originales ausentes: $($v.missing_raw -join ', ')" -ForegroundColor Red; $fail++ }
 
+if ($m.format -eq 'alice-backup/2' -and $m.memory.state -eq 'included') {
+  if (-not $MemoryPgBin) { Fail 2 'Indica -MemoryPgBin con binarios PostgreSQL compatibles para verificar la memoria en un cluster aislado' }
+  Step 'Restaurando memoria en PostgreSQL aislado (sin workers Hindsight)'
+  Push-Location $Root
+  try {
+    & $py -m services.backup.memory restore --source (Join-Path $Backup 'memory') --destination (Join-Path $Destination 'storage\memory-restore') --pg-bin $MemoryPgBin --port $MemoryPort
+    if ($LASTEXITCODE) { $fail++ }
+  } finally { Pop-Location }
+} else {
+  Write-Host 'La copia no contiene memoria recuperable. Resultado parcial; no valida restauración completa de Alice.' -ForegroundColor Yellow
+  $fail++
+}
 if ($fail) { Write-Host "Restauración con $fail fallo(s) de verificación en $Destination" -ForegroundColor Red; exit 1 }
 Write-Host "Restauración verificada en $Destination" -ForegroundColor Green
 if ($isLive) { Write-Host 'Siguiente paso: Start-Alice.ps1 (Qdrant activo leerá storage\qdrant\data restaurado).' }
