@@ -15,6 +15,19 @@ Windows PowerShell 5.1 (`powershell.exe`) los bloquea con la política de ejecuc
 | `Backup-Alice.ps1 [-Online] [-Keep 3]` | Ver BACKUP-RESTORE | 0/1/2 |
 | `Restore-Alice.ps1 -Backup X -Destination Y [-Force]` | Ver BACKUP-RESTORE | 0/1/2 |
 | `Demo-Alice.ps1 [-Load] [-Smoke]` | Verifica checksums de `data\samples`; `-Load` los carga en Alice; `-Smoke` lanza una consulta local | 0/1/2 |
+| `Start-Alice-Dev.ps1 [-PythonPath ruta] [-ValidateOnly] [-InitializeOnly]` | Inicia la API del checkout con rutas y puertos aislados | 0 / error |
+
+## Perfil de desarrollo aislado
+
+Start-Alice-Dev.ps1 ejecuta solo la API del checkout actual en 127.0.0.1:8200 y sus métricas en 127.0.0.1:9211. Antes de escribir o iniciar el proceso, valida que work\dev-data no sea un junction ni se solape con data, storage, logs o backups del checkout. Si 8200 o 9211 está ocupado, se detiene sin terminar el proceso existente.
+
+Datos, SQLite, documentos, carpeta autorizada y logs viven bajo work\dev-data\. El usuario integracion recibe una contraseña y clave de sesión aleatorias en work\dev-data\.dev-credentials; el ACL del archivo permite leerlo solo al usuario actual y a SYSTEM. work\ está excluido de Git. No copies ni publiques ese archivo.
+
+El perfil fuerza ALICE_LOCAL_ONLY=true, apaga nube, NotebookLM, correo, Hermes, memoria y voz, vacía las claves de proveedores y dirige Qdrant, Hindsight, TTS, Prometheus, Grafana y Hermes a puertos de desarrollo distintos de los de producción. No inicia ni detiene esos sidecars. Puede reutilizar Ollama en 127.0.0.1:11434 para inferencia local; no modifica la carpeta de datos de Ollama.
+
+Start-Alice-Dev.ps1 -ValidateOnly comprueba la separación de rutas y puertos sin crear datos, leer credenciales ni iniciar procesos. -InitializeOnly crea el directorio aislado y el archivo protegido de credenciales sin iniciar la API; es útil para preparar un perfil o verificar ACL. Para ejecutar desde PowerShell 7, compila primero la UI con npm ci y npm run build dentro de apps\web si quieres servirla junto con la API. Después ejecuta .\scripts\windows\Start-Alice-Dev.ps1 -PythonPath 'C:\ruta\al\entorno\Scripts\python.exe'. Sin ese parámetro usa .venv\Scripts\python.exe del checkout; también admite ALICE_DEV_PYTHON.
+
+Si no hay build, el backend arranca, pero la ruta de UI devuelve 503. La demo se abre en http://127.0.0.1:8200; Ctrl+C en la misma consola detiene el proceso. Este perfil no cambia ni sustituye la instalación activa.
 
 ## Manifiesto de procesos
 
