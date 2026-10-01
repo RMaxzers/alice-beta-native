@@ -226,10 +226,91 @@ MIGRATIONS: list[str] = [
     """,
 ]
 
-_lock = threading.Lock()  # ponytail: single-writer lock for one process; fine for a single-user beta
+MIGRATIONS.append("""
+CREATE TABLE backend_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+CREATE TABLE conversations (
+ conversation_id TEXT PRIMARY KEY, owner TEXT NOT NULL, title TEXT NOT NULL,
+ privacy TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+CREATE INDEX ix_conversations_owner ON conversations(owner, updated_at);
+CREATE TABLE chat_turns (
+ turn_id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL REFERENCES conversations(conversation_id),
+ owner TEXT NOT NULL, client_request_id TEXT NOT NULL, payload_hash TEXT NOT NULL,
+ status TEXT NOT NULL, events_json TEXT NOT NULL DEFAULT '[]', created_at TEXT NOT NULL,
+ UNIQUE(owner, client_request_id));
+CREATE UNIQUE INDEX ux_chat_running ON chat_turns(conversation_id) WHERE status='running';
+CREATE TABLE messages (
+ message_id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL REFERENCES conversations(conversation_id),
+ turn_id TEXT NOT NULL REFERENCES chat_turns(turn_id), role TEXT NOT NULL,
+ content TEXT NOT NULL, privacy TEXT NOT NULL, created_at TEXT NOT NULL, ordinal INTEGER NOT NULL);
+CREATE INDEX ix_messages_conversation ON messages(conversation_id, ordinal);
+CREATE TABLE file_operations (
+ operation_id TEXT PRIMARY KEY, owner TEXT NOT NULL, conversation_id TEXT NOT NULL,
+ client_request_id TEXT NOT NULL, payload_hash TEXT NOT NULL, filename TEXT NOT NULL,
+ destination TEXT NOT NULL, executor_name TEXT NOT NULL, privacy TEXT NOT NULL,
+ content_sha256 TEXT NOT NULL, size_bytes INTEGER NOT NULL, file_identity TEXT,
+ status TEXT NOT NULL, verification_json TEXT, error TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+ UNIQUE(owner, client_request_id));
+""")
+
+MIGRATIONS.append("""
+ALTER TABLE messages ADD COLUMN sources_json TEXT NOT NULL DEFAULT '[]';
+ALTER TABLE messages ADD COLUMN operation_ids_json TEXT NOT NULL DEFAULT '[]';
+""")
+
+_lock = threading.RLock()  # compatibility for callers supplying a raw test connection
 
 
-def connect(path: Path | None = None) -> sqlite3.Connection:
+class Result:
+    """Detached cursor: SQLite rows are consumed while its connection is locked."""
+    def __init__(self, cursor):
+        self.rowcount, self.lastrowid = cursor.rowcount, cursor.lastrowid
+        self._rows = iter(cursor.fetchall() if cursor.description else ())
+        cursor.close()
+
+    def fetchone(self):
+        return next(self._rows, None)
+
+    def fetchall(self):
+        return list(self._rows)
+
+    def __iter__(self):
+        return self._rows
+
+
+class Database:
+    """Serialized SQLite access, including reads and cursor consumption.
+
+    tx() holds this reentrant lock for the entire synchronous transaction. No
+    other thread can join it or see its uncommitted changes. Never await in tx().
+    SQLite BEGIN IMMEDIATE provides the corresponding inter-process writer lock.
+    """
+    def __init__(self, con):
+        self._con = con
+        self.lock = threading.RLock()
+
+    def execute(self, sql, parameters=()):
+        with self.lock:
+            return Result(self._con.execute(sql, parameters))
+
+    def executemany(self, sql, parameters):
+        with self.lock:
+            return Result(self._con.executemany(sql, parameters))
+
+    def executescript(self, sql):
+        with self.lock:
+            return Result(self._con.executescript(sql))
+
+    @property
+    def in_transaction(self):
+        with self.lock:
+            return self._con.in_transaction
+
+    def close(self):
+        with self.lock:
+            self._con.close()
+
+
+def connect(path: Path | None = None) -> Database:
     path = path or settings().ops_db
     path.parent.mkdir(parents=True, exist_ok=True)
     # isolation_level=None: autocommit; transactions are explicit via tx().
@@ -237,18 +318,21 @@ def connect(path: Path | None = None) -> sqlite3.Connection:
     con.row_factory = sqlite3.Row
     con.execute("PRAGMA foreign_keys=ON")
     con.execute("PRAGMA journal_mode=WAL")
-    return con
+    return Database(con)
 
 
 @contextmanager
 def tx(con: sqlite3.Connection):
-    with _lock:
+    with getattr(con, "lock", _lock):
+        if con.in_transaction:
+            raise RuntimeError("Nested transactions are not supported")
         try:
             con.execute("BEGIN IMMEDIATE")
             yield con
             con.execute("COMMIT")
         except BaseException:
-            con.execute("ROLLBACK")
+            if con.in_transaction:
+                con.execute("ROLLBACK")
             raise
 
 

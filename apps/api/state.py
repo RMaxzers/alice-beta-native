@@ -22,6 +22,8 @@ from services.providers.openrouter import OpenRouterProvider
 from services.rag.qdrant import Qdrant
 from services.router.router import Router
 from services.tasks.store import TaskStore
+from services.conversations.store import ConversationStore
+from services.actions.files import FileExecutor
 from services.workers.orchestrator import Orchestrator
 
 
@@ -79,6 +81,10 @@ class AliceState:
         self.observability = ObservabilityAnswerer(self)
         self.tasks = TaskStore(self.con, s.alice_timezone)
         self.tasks.reconcile()
+        self.conversations = ConversationStore(self.con)
+        self.conversations.recover()
+        self.file_executor = FileExecutor(self.con, s.alice_file_root, s.alice_executor_name)
+        self.file_executor.recover()
         self.orchestrator = Orchestrator(self)
 
     def set_local_only(self, value: bool) -> None:

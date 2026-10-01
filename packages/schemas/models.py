@@ -91,6 +91,8 @@ class ChatRequest(BaseModel):
     document_ids: list[str] = Field(default_factory=list, max_length=20)
     force_route: Route | None = None
     authorization_ticket: str | None = None
+    conversation_id: str | None = Field(default=None, min_length=1, max_length=64)
+    client_request_id: str | None = Field(default=None, min_length=8, max_length=100)
 
 
 class Source(BaseModel):

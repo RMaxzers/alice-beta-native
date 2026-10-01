@@ -19,6 +19,8 @@ class Settings(BaseSettings):
     alice_port: int = 8000
     alice_metrics_port: int = 9101
     alice_public_origin: str = ""
+    alice_executor_name: str = ""  # empty: operating system hostname
+    alice_file_root: Path | None = None  # explicit opt-in; no default writable folder
 
     alice_username: str = "admin"
     alice_password: SecretStr = SecretStr("")

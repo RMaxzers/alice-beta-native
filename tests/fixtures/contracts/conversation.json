@@ -1,0 +1,22 @@
+{
+  "conversation_id": "demo-conversation-001",
+  "title": "Consulta sintética",
+  "privacy": "PRIVATE",
+  "created_at": "2026-09-30T12:00:00+00:00",
+  "updated_at": "2026-09-30T12:00:01+00:00",
+  "messages": [
+    {
+      "message_id": "demo-message-0001",
+      "role": "assistant",
+      "content": "Respuesta sintética de demostración.",
+      "privacy": "PRIVATE",
+      "created_at": "2026-09-30T12:00:01+00:00",
+      "status": "complete",
+      "client_request_id": "demo-request-0001",
+      "sources": [
+        {"kind": "memory", "title": "preferencia sintética", "privacy": "PRIVATE", "verification": "UNVERIFIED"}
+      ],
+      "operation_ids": ["demo-operation-0001"]
+    }
+  ]
+}
