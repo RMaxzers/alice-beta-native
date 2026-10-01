@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "alice-cli"
+version = "0.2.0"
+description = "Cliente local/remoto de la API de Alice"
+requires-python = ">=3.12"
+dependencies = ["httpx>=0.28,<0.29"]
+
+[project.scripts]
+alice = "alice_cli.main:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
