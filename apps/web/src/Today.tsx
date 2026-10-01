@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, errMsg, fmtTime, raw, HttpError } from "./api";
 import { PageHead } from "./pages";
+import { Orb, type Tint } from "./Orb";
 import { PrivBadge } from "./Chat";
 import { ACTION_STATUS_LABEL, KIND_LABEL, PRIORITY_LABEL, type Action, type Kind, type Priority, type Task } from "./tasks";
 
@@ -114,6 +115,7 @@ export function Today() {
         </div>
       )}
       {err && <p className="error" role="alert">{err}</p>}
+      {data && <ReminderOrb data={data} />}
 
       <div className="card">
         <h2>Crear tarea</h2>
@@ -296,5 +298,40 @@ function TaskRow({ task, disabled, canMoveUp, canMoveDown, onToggleDone, onSave,
         </div>
       </div>
     </li>
+  );
+}
+
+// Reminders orb: copper while something is overdue, bright cyan when a timed task is due within the hour,
+// soft cyan with tasks left today, calm violet on a clear day. The orb eases between states (Orb.tsx).
+// ponytail: "within the hour" compares due_time in the browser's clock, not data.timezone; fine while both match.
+const SOON_MS = 60 * 60 * 1000;
+const isOpen = (t: Task) => t.status !== "done" && t.status !== "cancelled";
+
+function ReminderOrb({ data }: { data: TodayResp }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => { const t = window.setInterval(() => setNow(Date.now()), 60_000); return () => window.clearInterval(t); }, []);
+  const overdue = data.overdue.filter(isOpen);
+  const today = data.today.filter(isOpen);
+  const soon = today.filter((t) => {
+    if (!t.due_date || !t.due_time) return false;
+    const ms = new Date(`${t.due_date}T${t.due_time}`).getTime() - now;
+    return ms > -5 * 60_000 && ms <= SOON_MS;
+  });
+  const [tint, energy, count, title, detail]: [Tint, number, number, string, string] =
+    overdue.length ? ["copper", 0.6, overdue.length, overdue.length === 1 ? "1 tarea vencida" : `${overdue.length} tareas vencidas`, `La más antigua: «${overdue[0].title}».`]
+    : soon.length ? ["cyan", 0.85, soon.length, "Vence pronto", `«${soon[0].title}» a las ${soon[0].due_time!.slice(0, 5)}.`]
+    : today.length ? ["cyan", 0.35, today.length, today.length === 1 ? "1 tarea para hoy" : `${today.length} tareas para hoy`, "Nada vence en la próxima hora."]
+    : ["violet", 0.12, 0, "Día despejado", "No hay recordatorios pendientes."];
+
+  return (
+    <div className="card reminders" role="status" aria-live="polite">
+      <Orb size={132} tint={tint} energy={energy}>
+        <span className="reminders-count" aria-hidden="true">{count}</span>
+      </Orb>
+      <div>
+        <h2>{title}</h2>
+        <p className="muted">{detail}</p>
+      </div>
+    </div>
   );
 }

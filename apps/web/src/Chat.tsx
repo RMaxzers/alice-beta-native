@@ -1,11 +1,12 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, errMsg, raw } from "./api";
 import { Logo, type LogoState } from "./Logo";
+import { Orb } from "./Orb";
 import { renderMarkdown } from "./md";
 import { ACTION_STATUS_LABEL, type Action, type Priority, type Privacy, type Task } from "./tasks";
 import {
-  MIC_GENERIC_ERROR, MIC_PERMISSION_DENIED, MIC_UNAVAILABLE, fetchVoiceStatus, pickMimeType, synthesizeSpeech,
-  toSpeechText, transcribeAudio, voiceSupported, type VoiceStatus,
+  MIC_GENERIC_ERROR, MIC_PERMISSION_DENIED, MIC_UNAVAILABLE, fetchVoiceStatus, levelMeter, pickMimeType, synthesizeSpeech,
+  toSpeechText, transcribeAudio, voiceSupported, type LevelMeter, type VoiceStatus,
 } from "./voice";
 import "./voice.css";
 
@@ -106,6 +107,10 @@ export function Chat({ setLogo }: { setLogo: (s: LogoState) => void }) {
   const chunksRef = useRef<Blob[]>([]);
   const [listen, setListen] = useState<Record<string, ListenState>>({});
   const playingRef = useRef<{ id: string; audio: HTMLAudioElement; url: string } | null>(null);
+  // One live meter at a time (mic while recording, Alice's voice while playing) feeds the voice orb.
+  const meterRef = useRef<LevelMeter | null>(null);
+  const setMeter = (m: LevelMeter | null) => { meterRef.current?.close(); meterRef.current = m; };
+  const voiceLevel = useCallback(() => meterRef.current?.level() ?? 0, []);
 
   // v1 backend (identity answers api_contract "1") keeps conversations server-side; older backends need `history`.
   const [identity, setIdentity] = useState<Identity | null>(null);
@@ -149,7 +154,7 @@ export function Chat({ setLogo }: { setLogo: (s: LogoState) => void }) {
   function newConversation() { setMsgs([]); setConvId(null); setLogo("idle"); }
   useEffect(() => { fetchVoiceStatus().then(setVoiceStatus).catch(() => setVoiceStatus(null)); }, []);
   useEffect(() => { endRef.current?.scrollIntoView({ block: "end" }); }, [msgs]);
-  useEffect(() => () => { playingRef.current?.audio.pause(); recorderRef.current?.stream.getTracks().forEach((t) => t.stop()); }, []);
+  useEffect(() => () => { playingRef.current?.audio.pause(); recorderRef.current?.stream.getTracks().forEach((t) => t.stop()); meterRef.current?.close(); }, []);
 
   async function startRecording() {
     setMicError(null);
@@ -165,8 +170,10 @@ export function Chat({ setLogo }: { setLogo: (s: LogoState) => void }) {
     const rec = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
     chunksRef.current = [];
     rec.ondataavailable = (e) => { if (e.data.size) chunksRef.current.push(e.data); };
+    try { setMeter(levelMeter((ctx) => ctx.createMediaStreamSource(stream), false)); } catch { setMeter(null); }
     rec.onstop = async () => {
       stream.getTracks().forEach((t) => t.stop());
+      setMeter(null);
       const blob = new Blob(chunksRef.current, { type: rec.mimeType || "audio/webm" });
       setMicStatus("transcribing");
       try {
@@ -191,6 +198,7 @@ export function Chat({ setLogo }: { setLogo: (s: LogoState) => void }) {
     const cur = playingRef.current;
     if (cur?.id === id) {
       cur.audio.pause();
+      setMeter(null);
       URL.revokeObjectURL(cur.url);
       playingRef.current = null;
       setListen((s) => ({ ...s, [id]: { status: "idle" } }));
@@ -206,10 +214,12 @@ export function Chat({ setLogo }: { setLogo: (s: LogoState) => void }) {
       const blob = await synthesizeSpeech(toSpeechText(content));
       const url = URL.createObjectURL(blob);
       const audio = new Audio(url);
-      audio.onended = () => { setListen((s) => ({ ...s, [id]: { status: "idle" } })); URL.revokeObjectURL(url); playingRef.current = null; };
+      // Without a meter the audio still plays normally; the orb then just breathes.
+      try { setMeter(levelMeter((ctx) => ctx.createMediaElementSource(audio), true)); } catch { setMeter(null); }
+      audio.onended = () => { setListen((s) => ({ ...s, [id]: { status: "idle" } })); URL.revokeObjectURL(url); playingRef.current = null; setMeter(null); };
       audio.onerror = () => {
         setListen((s) => ({ ...s, [id]: { status: "error", error: "No se pudo reproducir el audio." } }));
-        URL.revokeObjectURL(url); playingRef.current = null;
+        URL.revokeObjectURL(url); playingRef.current = null; setMeter(null);
       };
       playingRef.current = { id, audio, url };
       await audio.play();
@@ -218,6 +228,20 @@ export function Chat({ setLogo }: { setLogo: (s: LogoState) => void }) {
       setListen((s) => ({ ...s, [id]: { status: "error", error: errMsg(e) } }));
     }
   }
+
+  // Voice orb: cyan while Alice hears or speaks (reacting to the live level), violet while she thinks.
+  const speaking = Object.values(listen).some((l) => l.status === "playing");
+  const voiceActive = micStatus !== "idle" || speaking;
+  const orbTint = micStatus === "recording" || speaking ? "cyan" : "violet";
+  const orbEnergy = micStatus === "recording" ? 0.8 : micStatus === "transcribing" ? 0.7 : speaking ? 0.5 : busy ? 0.45 : 0.15;
+  // Keep the floating orb mounted briefly after voice ends so it can fade out.
+  const [dock, setDock] = useState(false);
+  useEffect(() => {
+    if (voiceActive) { setDock(true); return; }
+    const t = window.setTimeout(() => setDock(false), 450);
+    return () => window.clearTimeout(t);
+  }, [voiceActive]);
+  const canTalk = voiceStatus?.enabled !== false && micSupported;
 
   const patch = (id: string, f: (m: Msg) => Partial<Msg>) => setMsgs((ms) => ms.map((m) => (m.id === id ? { ...m, ...f(m) } : m)));
 
@@ -385,7 +409,14 @@ export function Chat({ setLogo }: { setLogo: (s: LogoState) => void }) {
         <div className="thread">
         {msgs.length === 0 && (
           <div className="empty">
-            <Logo size={96} state="idle" />
+            <button type="button" className="orb-btn" onClick={toggleMic} disabled={!canTalk || micStatus === "transcribing"}
+              aria-pressed={micStatus === "recording"}
+              aria-label={!canTalk ? "Voz no disponible" : micStatus === "recording" ? "Detener grabación" : "Hablar con Alice"}
+              title={!micSupported ? MIC_UNAVAILABLE : undefined}>
+              <Orb size={208} tint={orbTint} energy={orbEnergy} level={voiceLevel}>
+                <Logo size={84} state={micStatus === "transcribing" ? "routing" : "idle"} />
+              </Orb>
+            </button>
             <h2>¿En qué te ayudo?</h2>
             <p className="muted">Se procesa en este equipo por defecto; nada sale sin tu autorización.</p>
           </div>
@@ -408,6 +439,11 @@ export function Chat({ setLogo }: { setLogo: (s: LogoState) => void }) {
         <p className="sr-only" aria-live="polite">{busy ? "Alice está respondiendo" : msgs.length ? "Respuesta terminada" : ""}</p>
       </div>
 
+      {dock && msgs.length > 0 && (
+        <div className={`voice-dock${voiceActive ? "" : " is-leaving"}`} aria-hidden="true">
+          <Orb size={112} tint={orbTint} energy={orbEnergy} level={voiceLevel} dimCenter={false} />
+        </div>
+      )}
       <form className="composer" onSubmit={send}>
         <div className="composer-box">
           {streak > 0 && <span key={streak} className="send-streak" aria-hidden onAnimationEnd={() => setStreak(0)} />}
