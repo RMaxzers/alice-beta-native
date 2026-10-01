@@ -97,7 +97,8 @@ export function Orb({ size, tint, energy, level, dimCenter = true, className = "
     const io = new IntersectionObserver(([e]) => { visible = e.isIntersecting; resume(); });
     io.observe(canvas);
     document.addEventListener("visibilitychange", resume);
-    if (still) draw(10); else resume();
+    draw(still ? 10 : 0); // first frame now, so the orb is never blank (hidden tab, captures)
+    if (!still) resume();
     return () => {
       cancelAnimationFrame(raf); io.disconnect();
       document.removeEventListener("visibilitychange", resume);
