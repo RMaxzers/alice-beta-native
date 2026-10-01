@@ -9,6 +9,7 @@ import { Observability } from "./Observability";
 import { Models, SettingsPage, SystemPage } from "./pages";
 import { Landing } from "./landing/Landing";
 import { LiveMap } from "./landing/LiveMap";
+import { Galaxy } from "./Galaxy";
 import "./theme.css";
 import "./styles.css";
 
@@ -71,6 +72,8 @@ function App() {
   if (user === null) return <Landing onDone={setUser} />;
 
   return (
+    <>
+    <Galaxy />
     <div className="shell">
       <a className="skip" href="#main">Saltar al contenido</a>
       <header className="topbar" data-state={logo}>
@@ -106,6 +109,7 @@ function App() {
         {tab === "settings" && <SettingsPage />}
       </main>
     </div>
+    </>
   );
 }
 

@@ -4,12 +4,14 @@
 //
 // Scenario switch: GET /__demo/set?mode=normal|empty|error&auth=1|0&contract=1|0 (state lives in this process).
 // contract=1 (default) serves API contract v1 (conversations, identity, file actions); 0 mimics the pre-v1 backend.
-import { readFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { Plugin } from "vite";
 
 const SAMPLES = resolve(__dirname, "../../../data/samples");
+// Static HTML exports of demo screens (POST /__demo/snapshot); work/ is git-ignored.
+const SNAPSHOTS = resolve(__dirname, "../../../work/html-nebulosa");
 const NOW = new Date("2026-09-28T10:30:00-03:00");
 const iso = (minAgo = 0) => new Date(NOW.getTime() - minAgo * 60_000).toISOString();
 const day = (d: number) => new Date(NOW.getTime() + d * 86_400_000).toISOString().slice(0, 10);
@@ -327,6 +329,31 @@ async function sendMessage(text) {
   ta.dispatchEvent(new w.Event("input", { bubbles: true })); await sleep(200);
   d.querySelector("form.composer").requestSubmit(); await sleep(2500); return "sent";
 }
+// Standalone HTML of the current screen: canvases frozen to images, all CSS inlined, fonts from Google Fonts.
+async function snapshot(name, title) {
+  const d = W().document;
+  // Orbs draw on rAF; wait (≤3 s) until each has a painted frame before freezing it.
+  for (const c of d.querySelectorAll(".orb canvas")) for (let i = 0; i < 30 && c.toDataURL().length < 5000; i++) await sleep(100);
+  d.querySelectorAll("canvas").forEach((c) => {
+    try {
+      const i = d.createElement("img"); i.src = c.toDataURL(); i.alt = ""; i.className = c.className;
+      i.style.cssText = c.closest(".orb") ? "position:absolute;inset:0;width:100%;height:100%;border-radius:50%" : (c.getAttribute("style") || "");
+      c.replaceWith(i);
+    } catch (e) { /* tainted canvas: leave it out */ }
+  });
+  // Source text, not cssRules: Chrome serializes var() shorthands (font, background) with empty longhands.
+  const css = [...d.querySelectorAll("style")].map((s) => s.textContent).join("\\n").replace(/@font-face\\s*{[^}]*}/g, "").replace(/Outfit Variable/g, "Outfit").replace(/JetBrains Mono Variable/g, "JetBrains Mono");
+  // Live form state is not in the markup; write it to attributes so the clone shows what the screen shows.
+  d.querySelectorAll("select").forEach((s) => [...s.options].forEach((o) => o.toggleAttribute("selected", o.selected)));
+  d.querySelectorAll("input").forEach((i) => { if (i.type === "checkbox" || i.type === "radio") i.toggleAttribute("checked", i.checked); else i.setAttribute("value", i.value); });
+  d.querySelectorAll("textarea").forEach((t) => { t.textContent = t.value; });
+  const body = d.body.cloneNode(true); body.querySelectorAll("script").forEach((s) => s.remove());
+  const html = "<!doctype html><html lang=\\"es\\"><head><meta charset=\\"utf-8\\"><meta name=\\"viewport\\" content=\\"width=device-width, initial-scale=1\\">"
+    + "<title>" + title + "</title><link rel=\\"stylesheet\\" href=\\"https://fonts.googleapis.com/css2?family=Outfit:wght@300..700&family=JetBrains+Mono:wght@400;500&display=swap\\">"
+    + "<style>" + css + "</style></head><body>" + body.innerHTML + "</body></html>";
+  const r = await fetch("/__demo/snapshot?name=" + encodeURIComponent(name), { method: "POST", body: html });
+  return r.json();
+}
 function cap(id) {
   window.last = "running";
   W().figma.captureForDesign({ captureId: id, endpoint: "https://mcp.figma.com/mcp/capture/" + id + "/submit?bindVariables=true", selector: "body" })
@@ -410,6 +437,16 @@ export function demoApi(): Plugin {
       server.middlewares.use((req, res, next) => {
         const url = new URL(req.url!, "http://demo");
         if (url.pathname === "/__demo/harness") return send(res, 200, HARNESS, "text/html; charset=utf-8");
+        if (url.pathname === "/__demo/snapshot" && req.method === "POST") {
+          const name = (url.searchParams.get("name") ?? "").replace(/[^\w.-]/g, "");
+          if (!name) return send(res, 400, { detail: "falta name" });
+          readBody(req).then((html) => {
+            mkdirSync(SNAPSHOTS, { recursive: true });
+            writeFileSync(resolve(SNAPSHOTS, name + ".html"), html);
+            send(res, 200, { ok: true, file: name + ".html", bytes: html.length });
+          }, (e) => send(res, 500, { detail: String(e) }));
+          return;
+        }
         if (url.pathname === "/__demo/set") {
           const mode = url.searchParams.get("mode"), auth = url.searchParams.get("auth");
           if (mode === "normal" || mode === "empty" || mode === "error") state.mode = mode;

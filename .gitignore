@@ -24,6 +24,7 @@ __pycache__/
 *.pyc
 .pytest_cache/
 *.egg-info/
+clients/cli/build/
 
 # node
 node_modules/

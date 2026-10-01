@@ -251,6 +251,8 @@ class Orchestrator:
             if d.route in MEMORY_ROUTES:
                 timing["memories"] = await self._recall_memories(user, req.message)
                 if timing["memories"]:
+                    d.privacy = Privacy.PRIVATE
+                    yield {"type": "privacy", "privacy": "PRIVATE", "raised_by": ["memoria"]}
                     yield {"type": "sources", "sources": self._memory_sources(timing["memories"])}
 
             if d.route == Route.OBSERVABILITY:
@@ -372,6 +374,7 @@ class Orchestrator:
             yield {"type": "tool", "name": "rag", "summary": f"{len(chunks)} fragmentos recuperados, {len(facts)} hechos"}
             fact_sources = [Source(kind="fact", title=f["statement"][:80], location=f["source_id"], privacy=Privacy(f["privacy"]),
                                    verification=f["verification"]) for f in facts]
+            d.privacy = Privacy.strictest(d.privacy, *[s.privacy for s in sources + fact_sources])
             yield {"type": "sources", "sources": [s.model_dump(mode="json") for s in sources + fact_sources]}
             if not chunks and not facts:
                 yield {"type": "token", "text": "No encontré evidencia en tus documentos listos para responder esto. "
