@@ -32,7 +32,8 @@ type FileOp = {
   verification: { verified: boolean; sha256: string; bytes: number } | null; error: string | null; created_at: string;
 };
 type ConvSummary = { conversation_id: string; title: string; privacy: Privacy; updated_at: string };
-type StoredMsg = { message_id: string; role: "user" | "assistant"; content: string; privacy: Privacy; status: string };
+type StoredMsg = { message_id: string; role: "user" | "assistant"; content: string; privacy: Privacy; status: string;
+  sources?: Source[]; operation_ids?: string[] };
 type Identity = { api_contract: string; executor_name: string; file_action: { enabled: boolean; root_label: string } };
 type ActionCard = { action: Action | FileOp | null; task: Task | null; event_id: number | null; message: string; undone?: boolean; undoError?: string };
 const isFileOp = (a: Action | FileOp | null): a is FileOp => !!a && "operation_id" in a;
@@ -133,13 +134,23 @@ export function Chat({ setLogo }: { setLogo: (s: LogoState) => void }) {
   async function openConversation(id: string) {
     setConvErr("");
     try {
-      const c = await api<{ conversation_id: string; messages: StoredMsg[] }>(`/api/conversations/${encodeURIComponent(id)}`);
-      // Stored turns carry text only; route, sources and action cards are not rehydrated yet (request R-03).
+      const q = encodeURIComponent(id);
+      const [c, convOps] = await Promise.all([
+        api<{ conversation_id: string; messages: StoredMsg[] }>(`/api/conversations/${q}`),
+        api<FileOp[]>(`/api/file-actions?conversation_id=${q}&limit=200`).catch(() => [] as FileOp[]),
+      ]);
+      // Stored turns bring their sources and operation ids (R-03); route and timing are not stored, so no route chip.
+      const opById = new Map(convOps.map((o) => [o.operation_id, o]));
       const out: Msg[] = [];
       c.messages.forEach((s, i) => {
         const note = STORED_NOTE[s.status];
-        out.push({ id: s.message_id, role: s.role, content: s.content, privacy: s.privacy, status: s.status === "complete" ? "done" : "interrupted",
-          error: s.role === "assistant" ? note : undefined, tools: [], sources: [], actions: [], suggestions: [] });
+        const actions: ActionCard[] = (s.operation_ids ?? []).flatMap((oid) => {
+          const op = opById.get(oid);
+          return op ? [{ action: op, task: null, event_id: null, message: s.content }] : [];
+        });
+        out.push({ id: s.message_id, role: s.role, content: actions.length ? "" : s.content, privacy: s.privacy,
+          status: s.status === "complete" ? "done" : "interrupted",
+          error: s.role === "assistant" ? note : undefined, tools: [], sources: s.sources ?? [], actions, suggestions: [] });
         // A turn that never produced an answer (interrupted, failed early, awaiting authorization) still gets a visible note.
         if (s.role === "user" && note && c.messages[i + 1]?.role !== "assistant")
           out.push({ id: s.message_id + "-note", role: "assistant", content: "", privacy: s.privacy, status: "interrupted", error: note,
@@ -537,7 +548,7 @@ function FileOpCard({ op, message }: { op: FileOp; message?: string }) {
   const tone = op.status === "done" ? "ok" : op.status === "failed" ? "danger" : op.status === "needs_review" ? "warn" : "muted";
   return (
     <div className={`chat-card chat-card-${tone}`} role={op.status === "failed" ? "alert" : "status"}>
-      <p><strong>{FILE_OP_LABEL[op.status]}:</strong> {message ?? op.error ?? op.destination}</p>
+      <p><strong>{FILE_OP_LABEL[op.status]}:</strong> {message || op.error || op.destination}</p>
       <dl className="op-facts small-text">
         <dt>Destino</dt><dd><code>{op.destination}</code></dd>
         <dt>Equipo</dt><dd>{op.executor_name}</dd>
@@ -671,10 +682,10 @@ function AssistantMsg({ m, onAuthorize, onLocal, onCancel, onUndoAction, onCreat
           <SuggestionResultCard key={i} s={s} onCreate={() => onCreateSuggestion(i)} onUndo={() => onUndoSuggestion(i)} />
         ))}
       </div>
-      {(m.decision || m.done) && (
+      {m.decision && (
         <details className="details">
           <summary>
-            <i className="route-dot" aria-hidden />{m.decision?.route ?? "—"} · {m.done?.provider ?? "…"}{m.done ? ` · ${m.done.latency_s}s` : ""} <PrivBadge p={m.privacy} />
+            <i className="route-dot" aria-hidden />{m.decision.route} · {m.done?.provider ?? "…"}{m.done?.latency_s != null ? ` · ${m.done.latency_s}s` : ""} <PrivBadge p={m.privacy} />
           </summary>
           <dl>
             <dt>Ruta</dt><dd>{m.decision?.route} <span className="muted">({m.decision?.decided_by})</span></dd>
