@@ -45,7 +45,7 @@ export function Orb({ size, tint, energy, level, dimCenter = true, className = "
 
   useEffect(() => {
     const canvas = ref.current;
-    const gl = canvas?.getContext("webgl", { premultipliedAlpha: true, antialias: true });
+    const gl = canvas?.getContext("webgl", { premultipliedAlpha: true, antialias: true, preserveDrawingBuffer: true }); // readable for captures
     if (!canvas || !gl) return; // CSS fallback (.orb background) stays visible
     const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
     const dpr = Math.min(devicePixelRatio || 1, 2);
