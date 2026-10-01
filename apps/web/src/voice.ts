@@ -48,3 +48,25 @@ export function toSpeechText(markdown: string): string {
   doc.querySelectorAll("pre, code").forEach((el) => el.remove());
   return (doc.body.textContent ?? "").replace(/\s+/g, " ").trim().slice(0, TTS_MAX_CHARS);
 }
+
+// Live 0..1 loudness for the voice orb. `toSpeakers` must be true for a media element (createMediaElementSource
+// reroutes its audio through the graph); false for the mic so it is not echoed back.
+export type LevelMeter = { level: () => number; close: () => void };
+export function levelMeter(source: (ctx: AudioContext) => AudioNode, toSpeakers: boolean): LevelMeter {
+  const ctx = new AudioContext();
+  const an = ctx.createAnalyser();
+  an.fftSize = 512;
+  source(ctx).connect(an);
+  if (toSpeakers) an.connect(ctx.destination);
+  void ctx.resume();
+  const buf = new Uint8Array(an.fftSize);
+  return {
+    level: () => {
+      an.getByteTimeDomainData(buf);
+      let sum = 0;
+      for (const v of buf) sum += ((v - 128) / 128) ** 2;
+      return Math.min(1, Math.sqrt(sum / buf.length) * 4);
+    },
+    close: () => { void ctx.close(); },
+  };
+}
