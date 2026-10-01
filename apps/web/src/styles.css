@@ -443,7 +443,7 @@ progress { width: 140px; height: 6px; accent-color: var(--accent); }
 .reminders { display: flex; align-items: center; gap: 24px; }
 .reminders h2 { margin: 0 0 4px; font-size: 1.25rem; }
 .reminders p { margin: 0; }
-.reminders-count { font: 600 2rem/1 var(--font-display); color: var(--text); text-shadow: 0 0 12px rgb(0 0 0 / .8); font-variant-numeric: tabular-nums; }
+.reminders-count { font: 600 2rem/1 var(--font-display); color: #fff; /* the orb is dark in both themes */ text-shadow: 0 0 12px rgb(0 0 0 / .8); font-variant-numeric: tabular-nums; }
 @media (max-width: 560px) { .reminders { flex-direction: column; text-align: center; } }
 @media (prefers-reduced-motion: reduce) {
   .orb, .voice-dock, .voice-dock.is-leaving { animation: none; transition: none; }
