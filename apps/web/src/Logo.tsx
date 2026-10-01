@@ -1,4 +1,4 @@
-import { useId } from "react";
+import { useEffect, useId, useRef } from "react";
 import "./logo.css";
 
 export type LogoState = "idle" | "routing" | "local" | "knowledge" | "cloud" | "observability" | "error";
@@ -11,9 +11,31 @@ export const STATE_LABEL: Record<LogoState, string> = {
 // Alice: a helmeted cat seen through a fisheye lens, riding a tunnel of light.
 // The ring, the speed lines, the visor rivets and the eye glints take the route color (--c, logo.css).
 // Original vector; useId keeps the gradient id unique when several logos share a page.
+// The eyes follow the pointer (Figma Make "Interactive Eye Following Card", qoWw8mLenLXBP7FS4hrBFC):
+// the gaze group shifts at most GAZE units toward it. Off under prefers-reduced-motion.
+const GAZE = 2.2;
+
+function useGaze() {
+  const ref = useRef<SVGGElement>(null);
+  useEffect(() => {
+    if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    const onMove = (e: PointerEvent) => {
+      const g = ref.current, svg = g?.ownerSVGElement;
+      if (!g || !svg) return;
+      const r = svg.getBoundingClientRect();
+      const dx = e.clientX - (r.left + r.width / 2), dy = e.clientY - (r.top + r.height * 0.65);
+      const d = Math.hypot(dx, dy) || 1, k = Math.min(1, d / 200) * GAZE / d;
+      g.style.transform = `translate(${dx * k}px, ${dy * k}px)`;
+    };
+    addEventListener("pointermove", onMove);
+    return () => removeEventListener("pointermove", onMove);
+  }, []);
+  return ref;
+}
 
 export function Logo({ state = "idle", size = 40 }: { state?: LogoState; size?: number }) {
   const g = `alice-lens${useId().replace(/:/g, "")}`;
+  const gaze = useGaze();
   return (
     <svg className="logo" data-state={state} width={size} height={size} viewBox="0 0 100 100" role="img"
       aria-label={`Alice: ${STATE_LABEL[state]}`}>
@@ -36,10 +58,12 @@ export function Logo({ state = "idle", size = 40 }: { state?: LogoState; size?: 
         <path className="shine" d="M33 40C35 29 44 25 50 25" />
         <rect className="rim" x="24" y="47" width="52" height="9" rx="4.5" />
         <circle className="rivet" cx="31" cy="51.5" r="1.6" /><circle className="rivet" cx="69" cy="51.5" r="1.6" />
-        <g className="eyes">
-          <path d="M33 65q7-5 14 0q-7 3.5-14 0Z" /><path d="M53 65q7-5 14 0q-7 3.5-14 0Z" />
+        <g className="gaze" ref={gaze}>
+          <g className="eyes">
+            <path d="M33 65q7-5 14 0q-7 3.5-14 0Z" /><path d="M53 65q7-5 14 0q-7 3.5-14 0Z" />
+          </g>
+          <circle className="glint" cx="42" cy="64.3" r="1.1" /><circle className="glint" cx="62" cy="64.3" r="1.1" />
         </g>
-        <circle className="glint" cx="42" cy="64.3" r="1.1" /><circle className="glint" cx="62" cy="64.3" r="1.1" />
         <path className="nose" d="M45.5 72h9l-4.5 5z" />
         <path className="mouth" d="M50 77v2.5M45 81q5 2.5 10 0" />
       </g>
