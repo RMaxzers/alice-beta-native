@@ -13,7 +13,9 @@ param(
   [string]$Destination = (Join-Path (Resolve-Path "$PSScriptRoot\..\..").Path 'backups'),
   [int]$Keep = 3,   # each Qdrant snapshot is ~545 MB even for a few points (preallocated segments)
   [switch]$Online,
-  [string]$QdrantUrl = 'http://127.0.0.1:6333'
+  [string]$QdrantUrl = 'http://127.0.0.1:6333',
+  [string]$MemoryInstance = (Join-Path $env:USERPROFILE '.pg0\instances\hindsight\instance.json'),
+  [switch]$SkipMemory
 )
 . "$PSScriptRoot\_common.ps1"
 $Destination = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($Destination)
@@ -79,6 +81,20 @@ print(json.dumps(dict(integrity=ok, counts=counts, sqlite_version=sqlite3.sqlite
     else { New-Item -ItemType Directory -Force (Join-Path $work "data\$d") | Out-Null }
   }
 
+  $memory = @{ state = 'omitted_explicitly'; recoverable = $false }
+  if (-not $SkipMemory) {
+    if (-not (Test-Path -LiteralPath $MemoryInstance)) { throw 'No se encontró la instancia real de Hindsight. Indica -MemoryInstance; -SkipMemory produce una copia parcial explícita.' }
+    Step 'Hindsight: snapshot PostgreSQL exportado, dump consistente y recuentos del mismo snapshot'
+    Push-Location $Root
+    try {
+      $memJson = & $py -m services.backup.memory dump --instance $MemoryInstance --destination (Join-Path $work 'memory')
+      if ($LASTEXITCODE) { throw 'No se pudo respaldar PostgreSQL de Hindsight; no se copiarán archivos activos' }
+      $memory = @{ state = 'included'; recoverable = $true; details = ($memJson | ConvertFrom-Json) }
+    } finally { Pop-Location }
+  } else {
+    Write-Warning 'Backup parcial y no recuperable para memoria: Hindsight/PostgreSQL se omitió explícitamente.'
+  }
+
   Step 'Manifiesto (versiones, recuentos, SHA256 de cada archivo)'
   $files = foreach ($f in Get-ChildItem $work -Recurse -File) {
     [ordered]@{ path = $f.FullName.Substring($work.Length + 1).Replace('\', '/'); bytes = $f.Length; sha256 = (Get-FileHash $f.FullName -Algorithm SHA256).Hash.ToLower() }
@@ -86,23 +102,32 @@ print(json.dumps(dict(integrity=ok, counts=counts, sqlite_version=sqlite3.sqlite
   $commit = try { (& git -C $Root rev-parse --short HEAD 2>$null) } catch { $null }
   $ver = (Select-String -Path (Join-Path $Root 'pyproject.toml') -Pattern '^version\s*=\s*"(.+)"').Matches[0].Groups[1].Value
   $manifest = [ordered]@{
-    format = 'alice-backup/1'; created_utc = (Get-Date).ToUniversalTime().ToString('o'); host = $env:COMPUTERNAME
+    format = 'alice-backup/2'; created_utc = (Get-Date).ToUniversalTime().ToString('o'); host = $env:COMPUTERNAME
     alice_version = $ver; git_commit = $commit
     consistency = $(if ($Online) { 'online: por almacén (SQLite backup API + snapshot Qdrant); correspondencia entre almacenes no garantizada' } else { 'offline: alice-api detenida durante la copia; mutaciones pausadas' })
     vector_store = [ordered]@{ mode = 'server'; product = 'qdrant'; version = $qv; url = $QdrantUrl; collections = $qdrant }
-    sqlite = $sqlite; env_included = $false; files = @($files)
+    sqlite = $sqlite; memory = $memory; recoverable = [bool]$memory.recoverable; env_included = $false; files = @($files)
+    memory_consistency = 'PostgreSQL exported snapshot independent of SQLite/Qdrant; queued and processing jobs included, not asserted complete. No global snapshot across components.'
   }
   $manifest | ConvertTo-Json -Depth 8 | Set-Content (Join-Path $work 'manifest.json') -Encoding utf8
-  Move-Item $work $final
+  if (-not ([IO.Path]::GetFullPath($work).StartsWith($Destination.TrimEnd('\') + '\', [StringComparison]::OrdinalIgnoreCase))) { throw 'Ruta de trabajo fuera del destino' }
+  Move-Item -LiteralPath $work -Destination $final
   Write-Host "Backup completo: $final ($(@($files).Count) archivos)" -ForegroundColor Green
 
   Step "Retención: se conservan las $Keep copias más recientes"
   Get-ChildItem $Destination -Directory -Filter 'alice-*' | Where-Object { $_.Name -notlike '*.partial' } |
-    Sort-Object Name -Descending | Select-Object -Skip $Keep | ForEach-Object { Remove-Item $_.FullName -Recurse -Force; Write-Host "  eliminado $($_.Name)" }
+    Sort-Object Name -Descending | Select-Object -Skip $Keep | ForEach-Object {
+      $resolved = [IO.Path]::GetFullPath($_.FullName)
+      if (-not $resolved.StartsWith($Destination.TrimEnd('\') + '\', [StringComparison]::OrdinalIgnoreCase) -or ($_.Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw 'Retención fuera del destino o enlace no permitido' }
+      Remove-Item -LiteralPath $resolved -Recurse -Force
+      Write-Host "  eliminado $($_.Name)"
+    }
   $rc = 0
 } catch {
   Write-Host "ERROR: $($_.Exception.Message)" -ForegroundColor Red
-  if (Test-Path $work) { Remove-Item $work -Recurse -Force -ErrorAction SilentlyContinue }
+  if ((Test-Path -LiteralPath $work) -and ([IO.Path]::GetFullPath($work).StartsWith($Destination.TrimEnd('\') + '\', [StringComparison]::OrdinalIgnoreCase))) {
+    Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue
+  }
   $rc = 1
 } finally {
   if ($stoppedApi) { Step 'Reanudando: Start-Alice.ps1'; & "$PSScriptRoot\Start-Alice.ps1" | Out-Null }

@@ -1,0 +1,5 @@
+{"type":"conversation","conversation_id":"demo-conversation-001","client_request_id":"demo-request-0001","privacy":"PRIVATE"}
+{"type":"route","decision":{"route":"LOCAL_SIMPLE","privacy":"PRIVATE"}}
+{"type":"sources","sources":[{"kind":"memory","title":"preferencia sintética","privacy":"PRIVATE","verification":"UNVERIFIED"}]}
+{"type":"token","text":"Respuesta sintética de demostración."}
+{"type":"done","conversation_id":"demo-conversation-001","client_request_id":"demo-request-0001","privacy":"PRIVATE","status":"complete"}

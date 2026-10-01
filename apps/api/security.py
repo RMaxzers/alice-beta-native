@@ -8,6 +8,7 @@ import json
 import secrets
 import sqlite3
 import time
+import threading
 from collections import defaultdict, deque
 
 from fastapi import HTTPException, Request
@@ -42,6 +43,7 @@ class Sessions:
         self.key = secret.encode()
         self.con = con
         self.failures: dict[str, deque] = defaultdict(deque)
+        self.failure_lock = threading.Lock()
 
     def _sign(self, body: bytes) -> str:
         return base64.urlsafe_b64encode(hmac.new(self.key, body, hashlib.sha256).digest()).decode().rstrip("=")
@@ -70,21 +72,25 @@ class Sessions:
             data = json.loads(base64.urlsafe_b64decode(body.encode()))
         except ValueError:
             return None
-        if not isinstance(data, dict) or data.get("exp", 0) <= time.time() or not data.get("sid"):
+        if (not isinstance(data, dict) or not isinstance(data.get("exp"), (int, float)) or
+                data["exp"] <= time.time() or not isinstance(data.get("sid"), str) or
+                not isinstance(data.get("csrf"), str) or not isinstance(data.get("u"), str)):
             return None
-        row = self.con.execute("SELECT username FROM sessions WHERE sid=?", (data["sid"],)).fetchone()
+        row = self.con.execute("SELECT username FROM sessions WHERE sid=? AND expires_at>?", (data["sid"], int(time.time()))).fetchone()
         return data if row and row["username"] == data.get("u") else None
 
     def throttle(self, key: str) -> None:
-        q = self.failures[key]
-        now = time.time()
-        while q and now - q[0] > 300:
-            q.popleft()
-        if len(q) >= 5:
-            raise HTTPException(429, "Demasiados intentos; espera unos minutos")
+        with self.failure_lock:
+            q = self.failures[key]
+            now = time.time()
+            while q and now - q[0] > 300:
+                q.popleft()
+            if len(q) >= 5:
+                raise HTTPException(429, "Demasiados intentos; espera unos minutos")
 
     def fail(self, key: str) -> None:
-        self.failures[key].append(time.time())
+        with self.failure_lock:
+            self.failures[key].append(time.time())
 
 
 def require_user(request: Request) -> str:

@@ -54,8 +54,8 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Alice", version="0.1.0-beta.1", lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
 
 # Feature routers (each module owns its /api/<area> routes and tests).
-from apps.api import routes_knowledge_extra, routes_memory, routes_voice  # noqa: E402
-for _r in (routes_memory.router, routes_voice.router, routes_knowledge_extra.router):
+from apps.api import routes_conversations, routes_knowledge_extra, routes_memory, routes_voice  # noqa: E402
+for _r in (routes_conversations.router, routes_memory.router, routes_voice.router, routes_knowledge_extra.router):
     app.include_router(_r)
 
 
@@ -112,7 +112,7 @@ async def login(body: Login, request: Request):
         await asyncio.sleep(0.5)
         raise HTTPException(401, "Credenciales inválidas")
     token, csrf = st.sessions.issue(body.username)
-    resp = JSONResponse({"user": body.username, "csrf": csrf})
+    resp = JSONResponse({"user": body.username, "csrf": csrf, "expires_at": int(time.time()) + SESSION_TTL})
     secure = request.headers.get("x-forwarded-proto") == "https" or request.url.scheme == "https"
     resp.set_cookie(COOKIE, token, max_age=SESSION_TTL, httponly=True, samesite="strict", secure=secure, path="/")
     return resp
@@ -131,20 +131,13 @@ async def session(request: Request):
     s = S(request).sessions.read(request.cookies.get(COOKIE))
     if not s:
         raise HTTPException(401, "No autenticado")
-    return {"user": s["u"], "csrf": s["csrf"]}
+    return {"user": s["u"], "csrf": s["csrf"], "expires_at": s["exp"]}
 
 
 # ------------------------------------------------------------------ chat
 @app.post("/api/chat")
 async def chat(req: ChatRequest, request: Request, user: str = Depends(require_user)):
-    st = S(request)
-
-    async def gen():
-        async for ev in st.orchestrator.chat(req, user):
-            if await request.is_disconnected():
-                break
-            yield json.dumps(ev, ensure_ascii=False) + "\n"
-    return StreamingResponse(gen(), media_type="application/x-ndjson")
+    return await routes_conversations.persistent_chat(req, request, user)
 
 
 @app.post("/api/egress/{ticket_id}/approve")

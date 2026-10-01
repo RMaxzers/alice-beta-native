@@ -22,6 +22,23 @@ Windows 11, PowerShell 7, GPU NVIDIA con `nvidia-smi`, Ollama instalado, Node.js
 - Pruebas: `.\scripts\windows\Test-Alice.ps1` (informe en `work\test-<fecha>\REPORT.md`).
 - Backup: `.\scripts\windows\Backup-Alice.ps1`; restauración: `.\scripts\windows\Restore-Alice.ps1`.
 
+### CLI (Python 3.12)
+
+La CLI se instala aislada; no instala el backend, modelos ni servicios de Alice:
+
+```powershell
+uv tool install --python 3.12 .\clients\cli
+alice login
+alice status
+alice chat
+alice chat --profile casa
+alice tasks list
+```
+
+`alice login` solicita usuario y contraseña de forma interactiva. La sesión se cifra con DPAPI para la cuenta Windows actual; nunca pases contraseñas como argumentos. Configura el perfil `casa` solo con la URL HTTPS privada real de tu tailnet: `alice profile set casa --url https://URL-PRIVADA-REAL`; luego usa `alice --profile casa login`. El perfil local apunta a `http://127.0.0.1:8000`. `Ctrl+C` desconecta el cliente; revisa el estado de la conversación antes de reintentar una acción.
+
+Para habilitar la creación de `.txt`/`.md` de manera explícita, configura `ALICE_FILE_ROOT` en `.env` a una carpeta local dedicada. Sin este ajuste, la herramienta no puede escribir archivos. `ALICE_EXECUTOR_NAME` cambia el nombre del equipo que aparece en la respuesta.
+
 ## Documentación
 
 | Documento | Contenido |
