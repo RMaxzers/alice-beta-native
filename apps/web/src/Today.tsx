@@ -260,7 +260,7 @@ function DayCard({ summary, data, pending, snoozed, findTask, busy, onDone, onSn
   const next = (ringing && findTask(ringing.task_id)) || (summary.next && findTask(summary.next.task_id)) || summary.next;
   const why = ringing ? "Aviso sonando ahora" : next?.due_date ? fmtWhen(next) : "Sin fecha";
   const coming = summary.upcoming.slice(0, 3);
-  const jump = (id: string) => document.getElementById(id)?.scrollIntoView({ block: "start" });
+  const jump = (id: string) => { const el = document.getElementById(id); el?.scrollIntoView({ block: "start" }); el?.focus({ preventScroll: true }); };
 
   return (
     <section className={`card day day-${state}`} aria-labelledby="day-title">
@@ -435,9 +435,9 @@ function Section({ id, title, tasks, emptyText, collapsible, ...p }: RowProps & 
   const head = <h2>{title} {tasks.length > 0 && <span className="muted">({tasks.length})</span>}</h2>;
   if (collapsible) {
     const hasFocus = tasks.some((t) => t.task_id === p.highlight);
-    return <details id={id} className="card fold" open={hasFocus || undefined}><summary>{head}</summary>{list}</details>;
+    return <details id={id} tabIndex={-1} className="card fold" open={hasFocus || undefined}><summary>{head}</summary>{list}</details>;
   }
-  return <div id={id} className="card">{head}{list}</div>;
+  return <section id={id} tabIndex={-1} className="card" aria-label={title}>{head}{list}</section>;
 }
 
 function TaskRow({ task, disabledIds, highlight, reminder, canMoveUp, canMoveDown, onToggleDone, onSave, onActivate, onMoveUp, onMoveDown, onSnoozed, onStopped }: RowProps & {
