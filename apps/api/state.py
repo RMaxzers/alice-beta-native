@@ -24,6 +24,7 @@ from services.rag.qdrant import Qdrant
 from services.router.router import Router
 from services.tasks.store import TaskStore
 from services.tasks.reminders import ReminderService
+from services.tasks.push import PushService
 from services.conversations.store import ConversationStore
 from services.actions.files import FileExecutor
 from services.workers.orchestrator import Orchestrator
@@ -89,7 +90,8 @@ class AliceState:
         self.observability = ObservabilityAnswerer(self)
         self.tasks = TaskStore(self.con, s.alice_timezone)
         self.tasks.reconcile()
-        self.reminders = ReminderService(self.con, s.alice_reminders_enabled)
+        self.push = PushService(self.con, s)
+        self.reminders = ReminderService(self.con, s.alice_reminders_enabled, self.push)
         self.conversations = ConversationStore(self.con)
         self.conversations.recover()
         self.file_executor = FileExecutor(self.con, s.alice_file_root, s.alice_executor_name)

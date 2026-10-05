@@ -2,7 +2,8 @@
 from __future__ import annotations
 
 import json
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -177,7 +178,7 @@ def test_today_buckets_and_explained_recommendations(store):
     mk("Borrador", status="draft", due_date=d(-5, store))
     parent = mk("Migrar servidor")
     mk("Respaldar antes", parent_id=parent["task_id"])
-    t = store.today("ana")
+    t = store.today("ana", datetime.combine(store.today_date(), datetime.min.time().replace(hour=8), ZoneInfo(store.tz)))
     assert [x["title"] for x in t["overdue"]] == ["Vencida"]  # drafts never count as overdue
     assert [x["title"] for x in t["today"]] == ["Hoy"]
     assert [x["title"] for x in t["upcoming"]] == ["Pronto"]

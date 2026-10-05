@@ -17,6 +17,7 @@ from apps.api.db import tx
 from packages.schemas.models import Privacy, SourceRef, TaskIn, TaskPatch
 from services.policies.autonomy import level_for
 from services.router.router import normalize
+from services.tasks.recurrence import attach, materialize, next_date, wall_due
 
 OPEN = ("draft", "open", "in_progress")
 PRIORITY = {1: "urgente", 2: "alta", 3: "normal", 4: "baja"}
@@ -46,8 +47,10 @@ def _task(r: sqlite3.Row | None) -> dict | None:
     d["sources"] = json.loads(d.pop("sources_json"))
     d.pop("owner", None)
     d.pop("action_id", None)
-    d["due_at"] = (datetime.fromisoformat(f"{d['due_date']}T{d['due_time']}")
-                   .replace(tzinfo=ZoneInfo(d["timezone"])).isoformat()
+    d["recurrence"] = json.loads(d.pop("recurrence_json", None) or "null")
+    following = next_date(d["occurrence_date"], d["occurrence_date"], d["recurrence"]) if d.get("series_id") else None
+    d["next_due"] = {"due_date": following, "due_time": d["due_time"]} if following else None
+    d["due_at"] = (wall_due(d['due_date'], d['due_time'], d['timezone']).astimezone(ZoneInfo(d['timezone'])).isoformat()
                    if d["due_date"] and d["due_time"] else None)
     return d
 
@@ -73,14 +76,60 @@ class TaskStore:
         t = _task(self.con.execute("SELECT * FROM tasks WHERE task_id=? AND owner=?", (task_id, owner)).fetchone())
         if not t:
             raise TaskError(404, "Tarea no encontrada")
+        if t.get("series_id"):
+            series = self.series(owner, t["series_id"])
+            following = next_date(t["occurrence_date"], series["start_date"], t["recurrence"]) if series["active"] else None
+            t["next_due"] = {"due_date": following, "due_time": t["due_time"]} if following else None
         return t
+
+    def series(self, owner: str, series_id: str) -> dict:
+        row = self.con.execute("SELECT * FROM task_series WHERE series_id=? AND owner=?", (series_id, owner)).fetchone()
+        if not row:
+            raise TaskError(404, "Serie no encontrada")
+        return {"series_id": series_id, "recurrence": json.loads(row["recurrence_json"]),
+                "active": bool(row["active"]), "timezone": row["timezone"], "start_date": row["start_date"]}
+
+    def stop_series(self, owner: str, series_id: str) -> dict:
+        with tx(self.con):
+            self.series(owner, series_id)
+            now = datetime.now(timezone.utc)
+            self.con.execute("UPDATE task_series SET active=0 WHERE owner=? AND series_id=?", (owner, series_id))
+            for row in self.con.execute("SELECT * FROM tasks WHERE owner=? AND series_id=? AND status IN ('open','in_progress')", (owner, series_id)):
+                future = (wall_due(row["due_date"], row["due_time"], row["timezone"]) > now if row["due_time"]
+                          else row["due_date"] > now.astimezone(ZoneInfo(row["timezone"])).date().isoformat())
+                if future:
+                    self.con.execute("UPDATE tasks SET status='cancelled',version=version+1,updated_at=? WHERE task_id=?", (_utc(), row["task_id"]))
+                    self._event(owner, row["task_id"], None, owner, "user", "series_stop", dict(row), self._row(row["task_id"]))
+        return {"ok": True}
+
+    def daily_summary(self, owner: str, day: date | None = None, now: datetime | None = None) -> dict:
+        now = now or datetime.now(timezone.utc)
+        today = now.astimezone(ZoneInfo(self.tz)).date()
+        day = day or today
+        end = (day + timedelta(days=7)).isoformat()
+        groups = {"overdue": [], "today": [], "upcoming": []}
+        for row in self.con.execute("SELECT * FROM tasks WHERE owner=? AND status IN ('open','in_progress')", (owner,)):
+            t = self.get(owner, row["task_id"])
+            due = t["due_date"]
+            if due and (due < day.isoformat() or (day == today and due == day.isoformat() and t["due_at"] and datetime.fromisoformat(t["due_at"]) <= now)):
+                groups["overdue"].append(t)
+            elif due is None or due == day.isoformat():
+                groups["today"].append(t)
+            elif day.isoformat() < due <= end:
+                groups["upcoming"].append(t)
+        for items in groups.values():
+            items.sort(key=lambda t: (t["due_date"] or "9999", t["due_time"] or "23:59", t["priority"], t["task_id"]))
+        ordered = groups["overdue"] + groups["today"] + groups["upcoming"]
+        return {"date": day.isoformat(), "timezone": self.tz, "generated_at": now.isoformat(),
+                "counts": {"pending": len(groups["today"]), "overdue": len(groups["overdue"]), "upcoming": len(groups["upcoming"])},
+                "next": ordered[0] if ordered else None, **{k: v[:5] for k, v in groups.items()}}
 
     def list(self, owner: str, statuses: list[str] | None = None, limit: int = 50, offset: int = 0) -> dict:
         statuses = statuses or list(OPEN)
         q = f"FROM tasks WHERE owner=? AND status IN ({','.join('?' * len(statuses))})"
         total = self.con.execute("SELECT COUNT(*) " + q, [owner, *statuses]).fetchone()[0]
         rows = self.con.execute("SELECT * " + q + " ORDER BY position LIMIT ? OFFSET ?", [owner, *statuses, limit, offset])
-        return {"items": [_task(r) for r in rows], "total": total}
+        return {"items": [self.get(owner, r["task_id"]) for r in rows], "total": total}
 
     def find_open(self, owner: str, text: str) -> list[dict]:
         """Open tasks whose title contains `text` (accent/case-insensitive)."""
@@ -88,7 +137,7 @@ class TaskStore:
         if not n:
             return []
         rows = self.con.execute(f"SELECT * FROM tasks WHERE owner=? AND status IN {OPEN} ORDER BY position", (owner,))
-        return [_task(r) for r in rows if n in normalize(r["title"])]
+        return [self.get(owner, r["task_id"]) for r in rows if n in normalize(r["title"])]
 
     def events(self, owner: str, task_id: str) -> list[dict]:
         self.get(owner, task_id)
@@ -99,7 +148,8 @@ class TaskStore:
             d.pop("owner")
             d["before"] = json.loads(d.pop("before_json") or "null")
             d["after"] = json.loads(d.pop("after_json") or "null")
-            d["undoable"] = d["undone_at"] is None and d["op"] != "undo"
+            is_series_create = d["op"] == "create" and bool((d["after"] or {}).get("series_id"))
+            d["undoable"] = d["undone_at"] is None and d["op"] not in ("undo", "occurrence", "series_stop") and not is_series_create
             out.append(d)
         return out
 
@@ -107,11 +157,11 @@ class TaskStore:
         return [_action(r) for r in self.con.execute(
             "SELECT * FROM actions WHERE owner=? ORDER BY created_at DESC LIMIT ?", (owner, limit))]
 
-    def today(self, owner: str) -> dict:
-        d0 = self.today_date()
+    def today(self, owner: str, now: datetime | None = None) -> dict:
+        now = now or datetime.now(timezone.utc)
+        d0 = now.astimezone(ZoneInfo(self.tz)).date()
         iso, week = d0.isoformat(), (d0 + timedelta(days=7)).isoformat()
-        now = datetime.now(timezone.utc)
-        rows = [_task(r) for r in self.con.execute(
+        rows = [self.get(owner, r["task_id"]) for r in self.con.execute(
             f"SELECT * FROM tasks WHERE owner=? AND status IN {OPEN} ORDER BY position", (owner,))]
         active = [t for t in rows if t["status"] != "draft"]
         overdue = [t for t in active if t["due_date"] and (t["due_date"] < iso or
@@ -250,7 +300,8 @@ class TaskStore:
 
         def dedupe():
             rows = self.con.execute(f"SELECT * FROM tasks WHERE owner=? AND status IN {OPEN} AND due_date IS ?", (owner, data.due_date))
-            return next((r for r in rows if normalize(r["title"]) == n), None)
+            rule = data.recurrence.model_dump() if data.recurrence else None
+            return next((r for r in rows if normalize(r["title"]) == n and json.loads(r["recurrence_json"] or "null") == rule), None)
         privacy = Privacy.strictest(data.privacy, src_priv).value
 
         def do(action_id):
@@ -259,10 +310,12 @@ class TaskStore:
             tid, now = uuid.uuid4().hex, _utc()
             pos = (self.con.execute("SELECT MAX(position) FROM tasks WHERE owner=?", (owner,)).fetchone()[0] or 0) + 1
             self.con.execute(
-                "INSERT INTO tasks VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "INSERT INTO tasks (task_id,owner,title,description,status,priority,kind,due_date,due_time,timezone,origin,privacy,project,parent_id,position,sources_json,action_id,created_at,updated_at,completed_at,version) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (tid, owner, data.title, data.description, data.status, data.priority, data.kind, data.due_date, data.due_time,
                  self.tz, origin, privacy, data.project, data.parent_id, pos, json.dumps(sources, ensure_ascii=False),
                  action_id, now, now, None, 1))
+            if data.recurrence:
+                attach(self.con, self._row(tid), data.recurrence.model_dump())
             after = self._row(tid)
             ev = self._event(owner, tid, action_id, actor, origin, "create", None, after)
             return tid, ev
@@ -271,7 +324,7 @@ class TaskStore:
         action, ev, mode = self._run(owner, "task.create", origin, f"{verb}: {data.title}",
                                      data.model_dump(mode="json"), idem_key, do, dedupe)
         if mode == "dup":
-            return {"task": _task(action), "action": None, "event_id": None, "duplicate": True}
+            return {"task": self.get(owner, action["task_id"]), "action": None, "event_id": None, "duplicate": True}
         if mode == "replay":
             if action["status"] != "done":
                 raise TaskError(409, f"Ese intento ya quedó registrado como «{action['status']}»; no se repite automáticamente")
@@ -295,19 +348,39 @@ class TaskStore:
             if before["version"] != patch.version:  # re-check inside the write lock
                 raise TaskError(409, "La tarea cambió desde que la cargaste; recarga")
             ch = dict(changes)
+            rule = ch.pop("recurrence", None)
+            if before["series_id"] and "recurrence" in changes:
+                raise TaskError(409, "La regla de una serie es inmutable; detén la serie y crea otra")
+            if before["series_id"] and before["status"] in ('done', 'cancelled') and ch.get("status") in OPEN:
+                if not self.series(owner, before["series_id"])["active"]:
+                    raise TaskError(409, "La serie está detenida")
+            if any(ch.get(k, before[k]) is None for k in ("title", "description", "status", "priority", "kind")):
+                raise TaskError(422, "Campo obligatorio no puede ser null")
             if ch.get("status") == "done" and before["status"] != "done":
                 ch["completed_at"] = _utc()
             elif "status" in ch and ch["status"] != "done":
                 ch["completed_at"] = None
-            sets = ", ".join(f"{k}=?" for k in ch)
-            self.con.execute(f"UPDATE tasks SET {sets}, updated_at=?, version=version+1 WHERE task_id=? AND owner=?",
+            sets = "".join(f"{k}=?, " for k in ch)
+            self.con.execute(f"UPDATE tasks SET {sets}updated_at=?, version=version+1 WHERE task_id=? AND owner=?",
                              [*ch.values(), _utc(), task_id, owner])
+            if rule:
+                attach(self.con, self._row(task_id), rule)
             ev = self._event(owner, task_id, action_id, actor, origin, "update", before, self._row(task_id))
+            if before["series_id"] and ch.get("status") in ('done', 'cancelled'):
+                series = self.con.execute("SELECT * FROM task_series WHERE series_id=? AND owner=?", (before["series_id"], owner)).fetchone()
+                following = next_date(before["occurrence_date"], series["start_date"], json.loads(series["recurrence_json"]))
+                if following:
+                    materialize(self.con, series, following)
             return task_id, ev
 
         verb = "Tarea completada" if changes.get("status") == "done" else "Tarea actualizada"
         action, ev, _ = self._run(owner, "task.update", origin, f"{verb}: {cur['title']}", {"task_id": task_id, **changes}, None, do)
-        return {"task": self.get(owner, task_id), "action": action, "event_id": ev}
+        task = self.get(owner, task_id)
+        following = None
+        if task["series_id"] and task["next_due"]:
+            row = self.con.execute("SELECT task_id FROM tasks WHERE owner=? AND series_id=? AND occurrence_date=?", (owner, task["series_id"], task["next_due"]["due_date"])).fetchone()
+            following = self.get(owner, row[0]) if row else None
+        return {"task": task, "action": action, "event_id": ev, "next": following}
 
     def reorder(self, owner: str, ids: list[str], *, origin: str, actor: str) -> dict:
         if len(set(ids)) != len(ids) or not ids:
@@ -345,6 +418,8 @@ class TaskStore:
             for g in group:
                 after = json.loads(g["after_json"])
                 cur = self._row(g["task_id"])
+                if g["op"] in ("series_stop", "occurrence") or (cur["series_id"] and (g["op"] == "create" or not (json.loads(g["before_json"] or '{}').get('series_id')))):
+                    raise TaskError(409, "No se deshace el alta o la detención de una serie; usa detener serie")
                 if cur["version"] != after["version"]:
                     raise TaskError(409, f"«{cur['title']}» cambió después; no se puede deshacer sin perder ese cambio")
                 before = json.loads(g["before_json"]) if g["before_json"] else None
