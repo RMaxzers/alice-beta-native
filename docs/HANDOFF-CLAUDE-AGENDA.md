@@ -34,5 +34,5 @@ Mi checkout aislado es `C:/Users/cuent/alice-agenda-codex`, rama `feat/alice-age
 
 ## Commits
 
-Pendiente de SHA final tras commit de esta rama; registrar CORE-10, commit, migración 8 y evidencia en `alice-coordination/CODEX_STATUS.md`.
-
+- Implementación CORE-10 y migración 8: `cd98eb2` (`feat(agenda): recurrent tasks, snooze and web push`).
+- Este handoff se incluye en el commit de documentación que acompaña a la implementación; su SHA exacto está registrado en `alice-coordination/CODEX_STATUS.md`.

@@ -1,4 +1,4 @@
-# # Etapa 2 · contrato backend v2 · 2026-10-05
+# Etapa 2 · contrato backend v2 · 2026-10-05
 
 Base confirmada limpia: `180c0cb`. Rama Codex `feat/alice-agenda-backend`, checkout `C:/Users/cuent/alice-agenda-codex`. Contrato publicado antes del código. No cambia autenticación: cookie + `X-CSRF-Token` en TODAS las mutaciones, 401 sin sesión, 403 CSRF/origen, 404 ID ajeno. Errores de dominio `{ "detail": "explicación" }`; validación Pydantic 422 con `detail` array. 409 versión obsoleta/conflicto de estado; 503 Push sin configurar.
 
@@ -55,5 +55,3 @@ R-19: `GET /api/settings` añadirá `voice:{enabled,stt,tts}` (stt/tts booleanos
 ## Reserva de archivos / coordinación
 
 Codex reserva `apps/api/**`, `packages/schemas/models.py`, `services/tasks/**`, nuevos tests Python, `pyproject.toml`, `uv.lock`, documentación nueva `docs/AGENDA-*`, script nuevo de claves. Claude conserva exclusivamente `apps/web/**`. No se edita UBUNTU-HOME ni compose compartidos: los pasos de configuración se entregan en documento nuevo. Sin desplegar ni modificar datos de VM.
-
-
