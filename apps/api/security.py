@@ -20,7 +20,7 @@ SESSION_TTL = 12 * 3600
 
 # Paths reachable through Tailscale Serve (requests carrying X-Forwarded-For). Everything else is loopback-only.
 EXTERNAL_PREFIXES = ("/api/", "/assets/")
-EXTERNAL_EXACT = ("/", "/index.html", "/favicon.svg")
+EXTERNAL_EXACT = ("/", "/index.html", "/favicon.svg", "/sw.js", "/manifest.webmanifest")
 EXTERNAL_DENY = ("/api/internal/",)
 
 

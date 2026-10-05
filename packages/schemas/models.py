@@ -4,7 +4,7 @@ from __future__ import annotations
 from enum import Enum
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class Privacy(str, Enum):
@@ -117,6 +117,27 @@ class SourceRef(BaseModel):
     line: int | None = Field(default=None, ge=1)
 
 
+class Recurrence(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    freq: Literal["daily", "weekly", "monthly"]
+    interval: Literal[1] = 1
+    weekdays: list[int] = Field(default_factory=list, max_length=7)
+    until: str | None = Field(default=None, pattern=DATE_RX)
+
+    @model_validator(mode="after")
+    def valid_rule(self):
+        from datetime import date
+        if self.until:
+            date.fromisoformat(self.until)
+        if self.freq == "weekly":
+            if not self.weekdays or len(set(self.weekdays)) != len(self.weekdays) or any(d < 1 or d > 7 for d in self.weekdays):
+                raise ValueError("weekly exige días ISO únicos entre 1 y 7")
+            self.weekdays.sort()
+        elif self.weekdays:
+            raise ValueError("weekdays solo corresponde a weekly")
+        return self
+
+
 class TaskIn(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
     title: str = Field(min_length=1, max_length=200)
@@ -130,6 +151,7 @@ class TaskIn(BaseModel):
     project: str | None = Field(default=None, max_length=80)
     parent_id: str | None = Field(default=None, max_length=64)
     sources: list[SourceRef] = Field(default_factory=list, max_length=10)
+    recurrence: Recurrence | None = None
 
 
 class TaskPatch(BaseModel):
@@ -144,6 +166,7 @@ class TaskPatch(BaseModel):
     due_time: str | None = Field(default=None, pattern=TIME_RX)
     project: str | None = Field(default=None, max_length=80)
     parent_id: str | None = Field(default=None, max_length=64)
+    recurrence: Recurrence | None = None
 
 
 class TaskIntent(BaseModel):

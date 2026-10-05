@@ -267,6 +267,35 @@ CREATE TABLE task_reminders (
 CREATE INDEX ix_task_reminders_owner ON task_reminders(owner, read_at, fired_at);
 """)
 
+MIGRATIONS.append("""
+CREATE TABLE task_series (
+ series_id TEXT PRIMARY KEY, owner TEXT NOT NULL, recurrence_json TEXT NOT NULL,
+ start_date TEXT NOT NULL, timezone TEXT NOT NULL, template_json TEXT NOT NULL,
+ cursor_date TEXT, active INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL);
+CREATE INDEX ix_series_owner ON task_series(owner, active);
+ALTER TABLE tasks ADD COLUMN series_id TEXT REFERENCES task_series(series_id);
+ALTER TABLE tasks ADD COLUMN occurrence_date TEXT;
+ALTER TABLE tasks ADD COLUMN recurrence_json TEXT;
+CREATE UNIQUE INDEX ux_task_occurrence ON tasks(series_id, occurrence_date) WHERE series_id IS NOT NULL;
+ALTER TABLE task_reminders ADD COLUMN snoozed_until TEXT;
+ALTER TABLE task_reminders ADD COLUMN generation INTEGER NOT NULL DEFAULT 0;
+CREATE TABLE reminder_events (
+ event_id INTEGER PRIMARY KEY, reminder_id INTEGER NOT NULL REFERENCES task_reminders(reminder_id),
+ owner TEXT NOT NULL, kind TEXT NOT NULL, at TEXT NOT NULL, generation INTEGER NOT NULL, scheduled_at TEXT);
+CREATE TABLE push_subscriptions (
+ subscription_id TEXT PRIMARY KEY, owner TEXT NOT NULL, endpoint TEXT NOT NULL UNIQUE,
+ keys_json TEXT NOT NULL, expiration_ms REAL, device_label TEXT NOT NULL,
+ created_at TEXT NOT NULL);
+CREATE INDEX ix_push_owner ON push_subscriptions(owner);
+CREATE TABLE push_deliveries (
+ delivery_id INTEGER PRIMARY KEY, reminder_id INTEGER NOT NULL REFERENCES task_reminders(reminder_id),
+ generation INTEGER NOT NULL, subscription_id TEXT NOT NULL REFERENCES push_subscriptions(subscription_id) ON DELETE CASCADE,
+ status TEXT NOT NULL DEFAULT 'pending', attempts INTEGER NOT NULL DEFAULT 0,
+ available_at TEXT NOT NULL, lease_token TEXT, last_error TEXT,
+ UNIQUE(reminder_id, generation, subscription_id));
+CREATE INDEX ix_push_pending ON push_deliveries(status, available_at);
+""")
+
 _lock = threading.RLock()  # compatibility for callers supplying a raw test connection
 
 

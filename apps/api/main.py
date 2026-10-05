@@ -47,8 +47,8 @@ async def lifespan(app: FastAPI):
                 st.router_ready = False
                 await asyncio.sleep(15)
     tasks.append(asyncio.create_task(warm()))
-    if st.settings.alice_reminders_enabled:
-        tasks.append(asyncio.create_task(st.reminders.loop()))
+    tasks.append(asyncio.create_task(st.reminders.loop()))
+    tasks.append(asyncio.create_task(st.push.loop()))
     # Recover documents left mid-processing by a crash: never shown as ready.
     st.con.execute("UPDATE documents SET status='failed', status_detail='interrumpido; reintentar' WHERE status IN ('pending','processing')")
     yield
@@ -60,8 +60,8 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Alice", version="0.1.0-beta.1", lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
 
 # Feature routers (each module owns its /api/<area> routes and tests).
-from apps.api import routes_conversations, routes_knowledge_extra, routes_memory, routes_voice  # noqa: E402
-for _r in (routes_conversations.router, routes_memory.router, routes_voice.router, routes_knowledge_extra.router):
+from apps.api import routes_agenda, routes_conversations, routes_knowledge_extra, routes_memory, routes_voice  # noqa: E402
+for _r in (routes_agenda.router, routes_conversations.router, routes_memory.router, routes_voice.router, routes_knowledge_extra.router):
     app.include_router(_r)
 
 
@@ -436,7 +436,10 @@ async def get_settings(request: Request, user: str = Depends(require_user)):
     st = S(request)
     cfg = st.settings
     configured = lambda v: "configurada" if v.get_secret_value() else "no configurada"
+    voice = await routes_voice.voice_status(request, user)
     return {"local_only": st.local_only, "cloud_enabled": cfg.alice_cloud_enabled,
+            "voice": {"enabled": voice["enabled"], "stt": voice["enabled"] and voice["stt"]["loaded"],
+                      "tts": voice["enabled"] and voice["tts"]["reachable"]},
             "budget_per_request_usd": cfg.alice_budget_per_request_usd, "budget_daily_usd": cfg.alice_budget_daily_usd,
             "timezone": cfg.alice_timezone, "max_upload_mb": cfg.max_upload_mb,
             "credentials": {"OPENROUTER_API_KEY": configured(cfg.openrouter_api_key), "TAVILY_API_KEY": configured(cfg.tavily_api_key),
@@ -455,7 +458,10 @@ async def spa(path: str):
         if path and f.is_file() and WEB_DIST.resolve() in f.parents:
             # Vite puts a content hash in every file under assets/, so those never go stale.
             immutable = path.startswith("assets/")
-            return FileResponse(f, headers={"Cache-Control": "public, max-age=31536000, immutable" if immutable else "no-cache"})
+            media = "text/javascript" if path == "sw.js" else "application/manifest+json" if path == "manifest.webmanifest" else None
+            return FileResponse(f, media_type=media, headers={"Cache-Control": "public, max-age=31536000, immutable" if immutable else "no-cache"})
+        if path in ("sw.js", "manifest.webmanifest"):
+            raise HTTPException(404, "Recurso web no compilado")
         # index.html names the current hashed bundles: always revalidate, or a rebuild stays invisible.
         return FileResponse(WEB_DIST / "index.html", headers={"Cache-Control": "no-cache"})
     return JSONResponse({"detail": "UI no compilada: ejecuta Setup-Alice.ps1"}, status_code=503)

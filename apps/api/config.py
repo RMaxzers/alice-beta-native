@@ -34,6 +34,10 @@ class Settings(BaseSettings):
     lmstudio_api_token: SecretStr = SecretStr("")
     alice_model_aliases: str = "config/models/aliases.yaml"
     alice_reminders_enabled: bool = False
+    alice_push_enabled: bool = False
+    alice_push_private_key: Path | None = None
+    alice_push_public_key: str = ""
+    alice_push_subject: str = ""
 
     alice_cloud_enabled: bool = True
     openrouter_api_key: SecretStr = SecretStr("")
