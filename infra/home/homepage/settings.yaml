@@ -1,0 +1,10 @@
+title: Alice · Casa
+language: es
+theme: dark
+color: violet
+headerStyle: boxed
+hideVersion: true
+layout:
+  Alice:
+    style: row
+    columns: 1

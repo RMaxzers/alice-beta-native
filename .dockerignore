@@ -1,0 +1,16 @@
+.git
+.env
+.env.*
+**/.venv
+**/node_modules
+**/__pycache__
+apps/web/dist
+data
+storage
+logs
+backups
+work
+infra/bin
+infra/grafana/data
+TRASH
+tests

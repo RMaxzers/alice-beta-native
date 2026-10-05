@@ -10,8 +10,8 @@ type TodayResp = {
   date: string; timezone: string; overdue: Task[]; today: Task[]; upcoming: Task[]; undated: Task[]; drafts: Task[];
   recommendations: Recommendation[]; recent_actions: Action[];
 };
-type CreatePayload = { title: string; due_date: string | null; priority: Priority; kind: Kind };
-type EditPayload = Partial<Pick<Task, "title" | "description" | "due_date" | "priority" | "status">>;
+type CreatePayload = { title: string; due_date: string | null; due_time: string | null; priority: Priority; kind: Kind };
+type EditPayload = Partial<Pick<Task, "title" | "description" | "due_date" | "due_time" | "priority" | "status">>;
 type Notice = { msg: string; eventId: number | null };
 
 const fmtDue = (date: string, time: string | null) => {
@@ -28,7 +28,7 @@ export function Today() {
   const noticeTimer = useRef<number | null>(null);
 
   const load = useCallback(() => api<TodayResp>("/api/today").then((d) => { setData(d); setErr(""); }).catch((e) => setErr(errMsg(e))), []);
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { load(); const timer = window.setInterval(load, 15_000); return () => window.clearInterval(timer); }, [load]);
   useEffect(() => () => { if (noticeTimer.current) window.clearTimeout(noticeTimer.current); }, []);
 
   function notify(msg: string, eventId: number | null) {
@@ -84,7 +84,7 @@ export function Today() {
       const key = crypto.randomUUID();
       const r = await raw("/api/tasks", {
         method: "POST", headers: { "Content-Type": "application/json", "Idempotency-Key": key },
-        body: JSON.stringify({ title: p.title, due_date: p.due_date ?? undefined, priority: p.priority, kind: p.kind }),
+        body: JSON.stringify({ title: p.title, due_date: p.due_date ?? undefined, due_time: p.due_time ?? undefined, priority: p.priority, kind: p.kind }),
       });
       const body = await r.json() as { task: Task; action: Action; event_id: number; duplicate: boolean };
       await load();
@@ -120,6 +120,7 @@ export function Today() {
       <div className="card">
         <h2>Crear tarea</h2>
         <QuickCreateForm onCreate={createTask} busy={creating} />
+        <p className="muted small-text">Añade fecha y hora para recibir un recordatorio en Alice. Una fecha sin hora queda en tu agenda.</p>
       </div>
 
       {!data ? !err && <p className="muted">Cargando…</p> : <>
@@ -168,6 +169,7 @@ export function Today() {
 function QuickCreateForm({ onCreate, busy }: { onCreate: (p: CreatePayload) => void; busy: boolean }) {
   const [title, setTitle] = useState("");
   const [dueDate, setDueDate] = useState("");
+  const [dueTime, setDueTime] = useState("");
   const [priority, setPriority] = useState<Priority>(3);
   const [kind, setKind] = useState<Kind>("personal");
 
@@ -175,8 +177,8 @@ function QuickCreateForm({ onCreate, busy }: { onCreate: (p: CreatePayload) => v
     e.preventDefault();
     const t = title.trim();
     if (!t || busy) return;
-    onCreate({ title: t, due_date: dueDate || null, priority, kind });
-    setTitle(""); setDueDate("");
+    onCreate({ title: t, due_date: dueDate || null, due_time: dueDate && dueTime ? dueTime : null, priority, kind });
+    setTitle(""); setDueDate(""); setDueTime("");
   }
 
   return (
@@ -184,6 +186,7 @@ function QuickCreateForm({ onCreate, busy }: { onCreate: (p: CreatePayload) => v
       <label className="sr-only" htmlFor="qc-title">Título de la tarea</label>
       <input id="qc-title" className="qc-title" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Nueva tarea…" required />
       <label className="inline">Fecha <input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} /></label>
+      <label className="inline">Hora del aviso <input type="time" value={dueTime} disabled={!dueDate} onChange={(e) => setDueTime(e.target.value)} /></label>
       <label className="inline">Prioridad
         <select value={priority} onChange={(e) => setPriority(Number(e.target.value) as Priority)}>
           {([1, 2, 3, 4] as Priority[]).map((p) => <option key={p} value={p}>{PRIORITY_LABEL[p]}</option>)}
@@ -230,15 +233,17 @@ function TaskRow({ task, disabled, canMoveUp, canMoveDown, onToggleDone, onSave,
   const [title, setTitle] = useState(task.title);
   const [description, setDescription] = useState(task.description);
   const [dueDate, setDueDate] = useState(task.due_date ?? "");
+  const [dueTime, setDueTime] = useState(task.due_time ?? "");
   const [priority, setPriority] = useState<Priority>(task.priority);
 
   function startEdit() {
     setTitle(task.title); setDescription(task.description); setDueDate(task.due_date ?? ""); setPriority(task.priority);
+    setDueTime(task.due_time ?? "");
     setEditing(true);
   }
   function save(e: React.FormEvent) {
     e.preventDefault();
-    onSave(task, { title: title.trim(), description, due_date: dueDate || null, priority });
+    onSave(task, { title: title.trim(), description, due_date: dueDate || null, due_time: dueDate && dueTime ? dueTime : null, priority });
     setEditing(false);
   }
 
@@ -256,6 +261,7 @@ function TaskRow({ task, disabled, canMoveUp, canMoveDown, onToggleDone, onSave,
             <textarea id={`t-${task.task_id}-desc`} rows={2} value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Descripción (opcional)" />
             <div className="row wrap">
               <label className="inline">Fecha <input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} /></label>
+              <label className="inline">Hora del aviso <input type="time" value={dueTime} disabled={!dueDate} onChange={(e) => setDueTime(e.target.value)} /></label>
               <label className="inline">Prioridad
                 <select value={priority} onChange={(e) => setPriority(Number(e.target.value) as Priority)}>
                   {([1, 2, 3, 4] as Priority[]).map((p) => <option key={p} value={p}>{PRIORITY_LABEL[p]}</option>)}
@@ -303,19 +309,18 @@ function TaskRow({ task, disabled, canMoveUp, canMoveDown, onToggleDone, onSave,
 
 // Reminders orb: copper while something is overdue, bright cyan when a timed task is due within the hour,
 // soft cyan with tasks left today, calm violet on a clear day. The orb eases between states (Orb.tsx).
-// ponytail: "within the hour" compares due_time in the browser's clock, not data.timezone; fine while both match.
 const SOON_MS = 60 * 60 * 1000;
 const isOpen = (t: Task) => t.status !== "done" && t.status !== "cancelled";
 
 function ReminderOrb({ data }: { data: TodayResp }) {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => { const t = window.setInterval(() => setNow(Date.now()), 60_000); return () => window.clearInterval(t); }, []);
-  const overdue = data.overdue.filter(isOpen);
+  const overdue = [...data.overdue, ...data.today.filter((t) => t.due_at && Date.parse(t.due_at) <= now)].filter(isOpen);
   const today = data.today.filter(isOpen);
-  const soon = today.filter((t) => {
+  const soon = [...today, ...data.upcoming.filter(isOpen)].filter((t) => {
     if (!t.due_date || !t.due_time) return false;
-    const ms = new Date(`${t.due_date}T${t.due_time}`).getTime() - now;
-    return ms > -5 * 60_000 && ms <= SOON_MS;
+    const ms = t.due_at ? Date.parse(t.due_at) - now : Number.NaN;
+    return ms > 0 && ms <= SOON_MS;
   });
   const [tint, energy, count, title, detail]: [Tint, number, number, string, string] =
     overdue.length ? ["copper", 0.6, overdue.length, overdue.length === 1 ? "1 tarea vencida" : `${overdue.length} tareas vencidas`, `La más antigua: «${overdue[0].title}».`]

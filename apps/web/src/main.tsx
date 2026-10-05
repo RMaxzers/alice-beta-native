@@ -4,6 +4,7 @@ import { api, setCsrf, setOnUnauthorized } from "./api";
 import { Logo, LogoState, STATE_LABEL } from "./Logo";
 import { Chat } from "./Chat";
 import { Today } from "./Today";
+import { Reminders } from "./Reminders";
 import { Knowledge } from "./Knowledge";
 import { Observability } from "./Observability";
 import { Models, SettingsPage, SystemPage } from "./pages";
@@ -82,6 +83,7 @@ function App() {
           <div><strong>Alice</strong><small aria-live="polite">{STATE_LABEL[logo]}</small></div>
         </div>
         <div className="top-meta">
+          <Reminders />
           {localOnly !== null && (
             <span className={`pill ${localOnly ? "pill-ok" : "pill-warn"}`} title={localOnly ? "El backend bloquea todo envío a proveedores externos" : "Puede salir contenido con tu autorización"}>
               <i aria-hidden /> {localOnly ? "Solo local" : "Salida autorizable"}

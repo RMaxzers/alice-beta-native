@@ -1,0 +1,4 @@
+- Alice:
+    - Chat y tareas:
+        href: "{{HOMEPAGE_VAR_ALICE_URL}}"
+        description: Conversaciones, documentos, tareas y acciones de archivo

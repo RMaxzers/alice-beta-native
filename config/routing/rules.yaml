@@ -9,7 +9,8 @@ rules:
   - \b(crea|creame|crear|agrega|agregame|agregar|anade|anota|apunta|registra) (una |la |otra )?(nueva )?tarea\b
   - \b(recuerdame|recordarme)\b
   - \bmarca(r)? .*\bcomo (hecha|hecho|completada|completado|terminada|terminado|lista|listo)\b
-  - \b(organiza|planifica|ordena) (mi|el) dia\b|\bque tengo (para )?hoy\b|\bmis (tareas|pendientes)\b
+  - \b(organiza|planifica|ordena) (mi|el) dia\b|\bque (tareas |pendientes |recordatorios )?tengo (para )?hoy\b|\bmis (tareas|pendientes|recordatorios)\b
+  - \b(muestra(me)?|revisa|consulta|resume) (mi|la) agenda( de hoy)?\b
   - \b(cambia|mueve|pospon|posterga|reprograma) (la )?tarea\b
 - route: WEB_RESEARCH
   category: web

@@ -16,7 +16,7 @@ function place(r: Req): { to: string; tone: Tone; dest: string } {
 }
 
 // Same buckets the backend uses for "Hoy" (services/observability/answers.py usage_today).
-const LOCAL_PROVIDERS = ["ollama", "local-tools", "ninguno"];
+const LOCAL_PROVIDERS = ["ollama", "lmstudio", "local-tools", "ninguno"];
 
 // Survives tab switches: requests seen before this view (re)mounts are not replayed as new.
 let seen: Set<string> | null = null;

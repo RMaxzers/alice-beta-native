@@ -59,13 +59,14 @@ CLASSIFIER_PROMPT = (
 
 
 class Router:
-    def __init__(self, embed: EmbedFn | None, classify: ClassifyFn | None):
+    def __init__(self, embed: EmbedFn | None, classify: ClassifyFn | None, *, route_aliases: dict | None = None):
         cfg = load_yaml("config/routing/rules.yaml")
         self.rules = [
             {**r, "compiled": [re.compile(p, re.I) for p in r["patterns"]]} for r in cfg["rules"]
         ]
         self.exemplars: dict[str, list[str]] = load_yaml("config/routing/exemplars.yaml")
-        self.route_alias: dict[str, str] = load_yaml("config/models/aliases.yaml")["route_alias"]
+        self.route_alias: dict[str, str] = (route_aliases if route_aliases is not None else
+                                          load_yaml("config/models/aliases.yaml")["route_alias"])
         self._embed = embed
         self._classify = classify
         self._ex_vecs: list[tuple[str, list[float]]] | None = None

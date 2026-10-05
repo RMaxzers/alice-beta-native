@@ -58,8 +58,9 @@ async def sample_ollama(base_url: str) -> None:
         m.OLLAMA_MODEL_LOADED.labels(x["name"]).set(x.get("size_vram", 0))
 
 
-async def run_samplers(ollama_url: str, interval: float = 15.0) -> None:
+async def run_samplers(ollama_url: str, interval: float = 15.0, *, local_provider=None) -> None:
     while True:
         await asyncio.to_thread(sample_gpu)
-        await sample_ollama(ollama_url)
+        if local_provider is None or local_provider.name == "ollama":
+            await sample_ollama(ollama_url)
         await asyncio.sleep(interval)

@@ -11,6 +11,7 @@ export type Source = { kind: "log" | "document"; title: string; location: string
 export type Task = {
   task_id: string; title: string; description: string; status: TaskStatus; priority: Priority; kind: Kind;
   due_date: string | null; due_time: string | null; timezone: string; origin: Origin; privacy: Privacy;
+  due_at?: string | null;
   project: string | null; parent_id: string | null; position: number; sources: Source[];
   created_at: string; updated_at: string; completed_at: string | null; version: number;
 };

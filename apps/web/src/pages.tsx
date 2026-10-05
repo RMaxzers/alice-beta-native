@@ -46,7 +46,7 @@ type Alias = {
   vram_bytes?: number | null; size_bytes?: number | null; state?: string; detail?: string;
   pricing?: { usd_per_mtok_in: number; usd_per_mtok_out: number } | null;
 };
-type ModelsResp = { ollama_reachable: boolean; aliases: Alias[]; routes: Record<string, string>; future_providers: Record<string, string> };
+type ModelsResp = { ollama_reachable: boolean; local_reachable?: boolean; local_provider?: string; aliases: Alias[]; routes: Record<string, string>; future_providers: Record<string, string> };
 
 export function Models() {
   const [d, err, load] = useLoad<ModelsResp>("/api/models");
@@ -55,7 +55,7 @@ export function Models() {
       <PageHead title="Modelos" sub="Alias, dónde se ejecuta cada modelo y cuánto cuesta."><button className="ghost small" onClick={load}>Actualizar</button></PageHead>
       {err && <p className="error" role="alert">{err}</p>}
       {!d ? !err && <p className="muted">Cargando…</p> : <>
-        {!d.ollama_reachable && <p className="error">Ollama no responde: los modelos locales aparecen como no disponibles. Comprueba el servicio Ollama en Sistema.</p>}
+        {!(d.local_reachable ?? d.ollama_reachable) && <p className="error">{d.local_provider === "lmstudio" ? "LM Studio" : "Ollama"} no responde: los modelos locales aparecen como no disponibles. Comprueba el servicio en Sistema.</p>}
         <div className="card table-wrap"><table>
           <thead><tr><th>Alias</th><th>Proveedor / modelo</th><th>Ubicación</th><th>Disponible</th><th>Carga</th><th>Precio (USD/Mtok)</th></tr></thead>
           <tbody>{d.aliases.map((a) => (
@@ -65,9 +65,9 @@ export function Models() {
               <td>{a.location}</td>
               <td>{a.available ? <span className="status st-ready">sí</span> : <span className="status st-failed">no</span>}
                 {a.detail && <div className="muted small-text">{a.detail}</div>}</td>
-              <td>{a.provider === "ollama" ? (a.loaded ? `cargado · VRAM ${fmtBytes(a.vram_bytes)}` : "no cargado") +
+              <td>{["ollama", "lmstudio"].includes(a.provider) ? (a.loaded ? `cargado · VRAM ${fmtBytes(a.vram_bytes)}` : "no cargado") +
                 (a.size_bytes ? ` · ${fmtBytes(a.size_bytes)} en disco` : "") : "—"}</td>
-              <td>{a.pricing ? `${a.pricing.usd_per_mtok_in.toFixed(2)} in / ${a.pricing.usd_per_mtok_out.toFixed(2)} out` : a.provider === "ollama" ? "local" : "desconocido"}</td>
+              <td>{a.pricing ? `${a.pricing.usd_per_mtok_in.toFixed(2)} in / ${a.pricing.usd_per_mtok_out.toFixed(2)} out` : ["ollama", "lmstudio"].includes(a.provider) ? "local" : "desconocido"}</td>
             </tr>))}
           </tbody></table></div>
         <div className="card">

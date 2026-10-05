@@ -18,10 +18,12 @@ from services.observability.prometheus import PrometheusAdapter
 from services.policies.egress import EgressGate
 from services.providers.ledger import Ledger
 from services.providers.ollama import OllamaProvider
+from services.providers.lmstudio import LMStudioProvider
 from services.providers.openrouter import OpenRouterProvider
 from services.rag.qdrant import Qdrant
 from services.router.router import Router
 from services.tasks.store import TaskStore
+from services.tasks.reminders import ReminderService
 from services.conversations.store import ConversationStore
 from services.actions.files import FileExecutor
 from services.workers.orchestrator import Orchestrator
@@ -55,10 +57,15 @@ class AliceState:
         migrate(self.con)
         # ponytail: single-user beta — facts created before per-owner isolation belong to the configured user.
         self.con.execute("UPDATE facts SET owner=? WHERE owner IS NULL", (s.alice_username,))
-        self.aliases: dict = load_yaml("config/models/aliases.yaml")["aliases"]
+        self.aliases: dict = load_yaml(s.alice_model_aliases)["aliases"]
         self.sessions = Sessions(s.alice_session_secret.get_secret_value(), self.con)
         self.local_only = s.alice_local_only
-        self.ollama = OllamaProvider(s.ollama_base_url)
+        # Existing internal callers use this attribute for the configured local provider.
+        self.ollama = (LMStudioProvider(s.lmstudio_base_url, s.lmstudio_api_token.get_secret_value())
+                       if s.alice_local_provider == "lmstudio" else OllamaProvider(s.ollama_base_url))
+        for name, alias in self.aliases.items():
+            if name.startswith("local-") and alias["provider"] != self.ollama.name:
+                raise ValueError(f"El alias {name} debe usar el proveedor local {self.ollama.name}")
         self.openrouter = OpenRouterProvider(s.openrouter_api_key.get_secret_value())
         self.web = WebSearch(s.tavily_api_key.get_secret_value())
         self.hermes = HermesAdapter(s.hermes_enabled, s.hermes_api_url)
@@ -73,7 +80,8 @@ class AliceState:
         cls = self.aliases["local-classifier"]
         self.router = Router(embed=self.embed,
                              classify=lambda msgs, schema: self.ollama.complete_json(cls["model"], msgs, schema,
-                                                                                     {"temperature": 0, "num_ctx": cls.get("num_ctx", 2048)}))
+                                                                                     {"temperature": 0, "num_ctx": cls.get("num_ctx", 2048)}),
+                             route_aliases=load_yaml(s.alice_model_aliases)["route_alias"])
         self.router_ready = False
         self.ingestor = Ingestor(self.con, s.data_dir, s.tables_db, self.qdrant, self.embed, emb["model"], emb["dimensions"],
                                  s.max_upload_mb * 1024 * 1024, s.max_pdf_pages)
@@ -81,6 +89,7 @@ class AliceState:
         self.observability = ObservabilityAnswerer(self)
         self.tasks = TaskStore(self.con, s.alice_timezone)
         self.tasks.reconcile()
+        self.reminders = ReminderService(self.con, s.alice_reminders_enabled)
         self.conversations = ConversationStore(self.con)
         self.conversations.recover()
         self.file_executor = FileExecutor(self.con, s.alice_file_root, s.alice_executor_name)

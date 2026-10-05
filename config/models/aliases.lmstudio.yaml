@@ -1,0 +1,55 @@
+# Separate LM Studio profile; set context at model load time.
+# Model aliases. Routes point to aliases; aliases point to provider + model.
+# Cloud IDs taken from the OpenRouter catalog on 2026-09-22 (docs/MODELS.md); prices are read live from the catalog.
+aliases:
+  local-general:
+    provider: lmstudio
+    model: google/gemma-4-e4b
+    num_ctx: 2048
+    temperature: 0.3
+  local-code:
+    provider: lmstudio
+    model: google/gemma-4-e4b   # same weights as local-general in Beta (D3)
+    num_ctx: 2048
+    temperature: 0.2
+  local-classifier:
+    provider: lmstudio
+    model: google/gemma-4-e4b
+    num_ctx: 2048
+    temperature: 0.0
+  local-embedding:
+    provider: lmstudio
+    model: text-embedding-nomic-embed-text-v1.5
+    dimensions: 768
+  cloud-cheap:
+    provider: openrouter
+    model: deepseek/deepseek-v4.1-flash
+    max_tokens: 1500
+  cloud-powerful:
+    provider: openrouter
+    model: anthropic/claude-sonnet-5
+    max_tokens: 2000
+  financial-research:
+    provider: openrouter
+    model: deepseek/deepseek-v4.1-flash
+    max_tokens: 1500
+
+route_alias:
+  LOCAL_SIMPLE: local-general
+  LOCAL_CODE: local-code
+  LOCAL_RAG: local-general
+  STRUCTURED_QUERY: local-general
+  LOG_ANALYSIS: local-general
+  OBSERVABILITY: local-general
+  AUTOMATION: local-general
+  CLOUD_CHEAP: cloud-cheap
+  CLOUD_POWERFUL: cloud-powerful
+  WEB_RESEARCH: cloud-cheap
+  FINANCIAL_RESEARCH: financial-research
+
+# Providers prepared but not enabled in Beta 0.1 (no empty implementations).
+future_providers:
+  deepseek: {env: DEEPSEEK_API_KEY, note: "Web subscription does not imply API access"}
+  anthropic: {env: ANTHROPIC_API_KEY}
+  openai: {env: OPENAI_API_KEY}
+  gemini: {env: GEMINI_API_KEY}

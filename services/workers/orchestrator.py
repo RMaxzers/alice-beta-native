@@ -63,7 +63,8 @@ def _utc() -> str:
 
 
 # Task intents, matched on the accent-folded lowercase USER message.
-TASK_PLAN = re.compile(r"\b(organiza|planifica|ordena) (mi|el) dia\b|\bque tengo (para )?hoy\b|\bmis (tareas|pendientes)\b")
+TASK_PLAN = re.compile(r"\b(organiza|planifica|ordena) (mi|el) dia\b|\bque (tareas |pendientes |recordatorios )?tengo (para )?hoy\b"
+                       r"|\bmis (tareas|pendientes|recordatorios)\b|\b(muestra(me)?|revisa|consulta|resume) (mi|la) agenda( de hoy)?\b")
 TASK_DONE = re.compile(r"\bmarca(?:r)?\s+(?P<a>.*?)\s*\bcomo\s+(?:hecha|hecho|completada|completado|terminada|terminado|lista|listo)\b(?P<b>.*)")
 TASK_MOVE = re.compile(r"\b(?:cambia|mueve|pospon|posterga|reprograma)\s+(?:la\s+)?tarea\b(?P<rest>.*)")
 TASK_CREATE = re.compile(r"\b(?:crea|creame|crear|agrega|agregame|agregar|anade|anota|apunta|registra)\s+(?:una\s+|la\s+|otra\s+)?"
@@ -158,13 +159,13 @@ class Orchestrator:
                             timing["usage"] = ch.usage
                             break
                         yield ch.text
-                    m.PROVIDER_ATTEMPTS.labels("ollama", "ok").inc()
+                    m.PROVIDER_ATTEMPTS.labels(self.s.ollama.name, "ok").inc()
                 except ProviderError:
-                    m.PROVIDER_ATTEMPTS.labels("ollama", "error").inc()
+                    m.PROVIDER_ATTEMPTS.labels(self.s.ollama.name, "error").inc()
                     raise
                 finally:
                     timing["provider_s"] = time.perf_counter() - tp
-                    m.PROVIDER_DURATION.labels("ollama").observe(timing["provider_s"])
+                    m.PROVIDER_DURATION.labels(self.s.ollama.name).observe(timing["provider_s"])
         finally:
             if timing.get("queue_s") is None:  # cancelled while queued
                 self.waiting -= 1
@@ -266,7 +267,7 @@ class Orchestrator:
                 async for ev in _tap(self._structured(req, user, docs, timing), answer_parts):
                     yield ev
             elif d.route == Route.LOG_ANALYSIS:
-                provider, model = "ollama", self._alias("local-general")["model"]
+                provider, model = self.s.ollama.name, self._alias("local-general")["model"]
                 async for ev in _tap(self._logs(req, user, docs, timing), answer_parts):
                     yield ev
             elif d.route in (Route.WEB_RESEARCH, Route.FINANCIAL_RESEARCH):
@@ -277,7 +278,7 @@ class Orchestrator:
                 provider, model = "local-tools", "tasks"
                 async for ev in _tap(self._automation(req, user, d, docs, timing), answer_parts):
                     if ev.get("type") == "_fallback":
-                        provider, model = "ollama", self._alias(d.model_alias or "local-general")["model"]
+                        provider, model = self.s.ollama.name, self._alias(d.model_alias or "local-general")["model"]
                         continue
                     yield ev
             elif d.route in (Route.CLOUD_CHEAP, Route.CLOUD_POWERFUL):
@@ -286,7 +287,7 @@ class Orchestrator:
                 async for ev in self._cloud(req, user, d, rid, timing):
                     yield ev
             else:
-                provider, model = "ollama", self._alias(d.model_alias or "local-general")["model"]
+                provider, model = self.s.ollama.name, self._alias(d.model_alias or "local-general")["model"]
                 async for ev in _tap(self._local(req, user, d, docs, timing), answer_parts):
                     yield ev
             if timing.get("halted"):
@@ -331,7 +332,7 @@ class Orchestrator:
                    "latency_s": round(timing["total_s"], 2), "queue_s": round(timing.get("queue_s") or 0, 2),
                    "retrieval_s": round(timing.get("retrieval_s") or 0, 3),
                    "tokens_out": getattr(u, "tokens_out", None), "cost_usd": timing.get("cost_usd"),
-                   "cost_state": timing.get("cost_state", "local" if provider in ("ollama", "local-tools") else "unknown"),
+                   "cost_state": timing.get("cost_state", "local" if provider in ("ollama", "lmstudio", "local-tools") else "unknown"),
                    "privacy": d.privacy.value if d else None}
 
     def _raised_by(self, req: ChatRequest, docs: list[dict]) -> list[str]:

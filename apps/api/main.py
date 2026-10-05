@@ -35,20 +35,26 @@ async def lifespan(app: FastAPI):
     st = AliceState(settings())
     app.state.alice = st
     m.serve(st.settings.alice_metrics_port)
-    tasks = [asyncio.create_task(run_samplers(st.settings.ollama_base_url)), asyncio.create_task(st.health.loop())]
+    tasks = [asyncio.create_task(run_samplers(st.settings.ollama_base_url,
+                                            local_provider=st.ollama)), asyncio.create_task(st.health.loop())]
 
     async def warm():
-        try:
-            await st.router.warmup()
-            st.router_ready = True
-        except Exception:  # noqa: BLE001 — rules still work without embeddings
-            st.router_ready = False
+        while not st.router_ready:
+            try:
+                await st.router.warmup()
+                st.router_ready = True
+            except Exception:  # noqa: BLE001 — rules still work without embeddings
+                st.router_ready = False
+                await asyncio.sleep(15)
     tasks.append(asyncio.create_task(warm()))
+    if st.settings.alice_reminders_enabled:
+        tasks.append(asyncio.create_task(st.reminders.loop()))
     # Recover documents left mid-processing by a crash: never shown as ready.
     st.con.execute("UPDATE documents SET status='failed', status_detail='interrumpido; reintentar' WHERE status IN ('pending','processing')")
     yield
     for t in tasks:
         t.cancel()
+    await asyncio.gather(*tasks, return_exceptions=True)
 
 
 app = FastAPI(title="Alice", version="0.1.0-beta.1", lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
@@ -272,6 +278,16 @@ async def today(request: Request, user: str = Depends(require_user)):
     return S(request).tasks.today(user)
 
 
+@app.get("/api/reminders")
+async def reminders(request: Request, limit: int = 20, user: str = Depends(require_user)):
+    return S(request).reminders.list(user, limit)
+
+
+@app.post("/api/reminders/{reminder_id}/ack")
+async def acknowledge_reminder(reminder_id: int, request: Request, user: str = Depends(require_user)):
+    return _tasks(lambda: S(request).reminders.acknowledge(user, reminder_id))
+
+
 @app.get("/api/tasks")
 async def list_tasks(request: Request, status: str = "draft,open,in_progress", limit: int = 50, offset: int = 0,
                      user: str = Depends(require_user)):
@@ -369,18 +385,19 @@ async def models(request: Request, user: str = Depends(require_user)):
     out = []
     for alias, a in st.aliases.items():
         row = {"alias": alias, "provider": a["provider"], "model": a["model"]}
-        if a["provider"] == "ollama":
-            full = a["model"] if ":" in a["model"] else a["model"] + ":latest"
+        if a["provider"] in ("ollama", "lmstudio"):
+            full = (a["model"] if a["provider"] != "ollama" or ":" in a["model"] else a["model"] + ":latest")
             row.update(available=full in installed, loaded=full in loaded,
                        vram_bytes=loaded.get(full, {}).get("size_vram"), size_bytes=installed.get(full, {}).get("size"),
-                       location="local (este PC)")
+                       location="local (LM Studio / enlace SSH)" if a["provider"] == "lmstudio" else "local (este PC)")
         else:
             h = await st.openrouter.health()
             row.update(available=st.cloud_available(), state=h.state, detail=h.detail, location="cloud (OpenRouter)",
-                       pricing=await _safe_pricing(st, a["model"]))
+                       pricing=await _safe_pricing(st, a["model"]) if st.cloud_available() else None)
         out.append(row)
-    route_alias = load_yaml("config/models/aliases.yaml")["route_alias"]
-    return {"ollama_reachable": ollama_ok, "aliases": out, "routes": route_alias,
+    route_alias = load_yaml(st.settings.alice_model_aliases)["route_alias"]
+    return {"ollama_reachable": ollama_ok, "local_reachable": ollama_ok,
+            "local_provider": st.ollama.name, "aliases": out, "routes": route_alias,
             "future_providers": {k: ("READY_FOR_CONFIGURATION" if getattr(st.settings, f"{k}_api_key").get_secret_value() else "DISABLED")
                                  for k in ("deepseek", "anthropic", "openai", "gemini")}}
 

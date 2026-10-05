@@ -46,6 +46,9 @@ def _task(r: sqlite3.Row | None) -> dict | None:
     d["sources"] = json.loads(d.pop("sources_json"))
     d.pop("owner", None)
     d.pop("action_id", None)
+    d["due_at"] = (datetime.fromisoformat(f"{d['due_date']}T{d['due_time']}")
+                   .replace(tzinfo=ZoneInfo(d["timezone"])).isoformat()
+                   if d["due_date"] and d["due_time"] else None)
     return d
 
 
@@ -107,12 +110,16 @@ class TaskStore:
     def today(self, owner: str) -> dict:
         d0 = self.today_date()
         iso, week = d0.isoformat(), (d0 + timedelta(days=7)).isoformat()
+        now = datetime.now(timezone.utc)
         rows = [_task(r) for r in self.con.execute(
             f"SELECT * FROM tasks WHERE owner=? AND status IN {OPEN} ORDER BY position", (owner,))]
         active = [t for t in rows if t["status"] != "draft"]
+        overdue = [t for t in active if t["due_date"] and (t["due_date"] < iso or
+                   (t["due_date"] == iso and t["due_at"] and datetime.fromisoformat(t["due_at"]) <= now))]
+        overdue_ids = {t["task_id"] for t in overdue}
         out = {"date": iso, "timezone": self.tz,
-               "overdue": [t for t in active if t["due_date"] and t["due_date"] < iso],
-               "today": [t for t in active if t["due_date"] == iso],
+               "overdue": overdue,
+               "today": [t for t in active if t["due_date"] == iso and t["task_id"] not in overdue_ids],
                "upcoming": [t for t in active if t["due_date"] and iso < t["due_date"] <= week],
                "undated": [t for t in active if not t["due_date"]],
                "drafts": [t for t in rows if t["status"] == "draft"],

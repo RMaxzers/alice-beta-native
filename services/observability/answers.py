@@ -73,7 +73,7 @@ class ObservabilityAnswerer:
     # ------------------------------------------------------------------ handlers
     async def health(self):
         h = await self.s.health.check_all()
-        core = ["alice_api", "router", "ollama", "qdrant", "prometheus", "grafana", "windows_exporter", "gpu"]
+        core = ["alice_api", "router", self.s.ollama.name, "qdrant", "prometheus", "grafana", "windows_exporter", "gpu"]
         problems = [k for k in core if h[k]["state"] != "healthy"]
         lines = [f"- **{k}**: {h[k]['state']} — {h[k]['detail']}" for k in core]
         opt = [f"- {k}: {h[k]['state']} — {h[k]['detail']}" for k in ("openrouter", "web", "hermes", "docker", "grafana_external")]
@@ -125,11 +125,12 @@ class ObservabilityAnswerer:
             return "nvidia-smi no devolvió datos: no puedo informar el uso de GPU.", {}, []
         g = gpus[0]
         loaded = await self.s.ollama.running()
-        lm = ", ".join(f"{x['name']} ({x.get('size_vram', 0) / GiB:.1f} GiB VRAM)" for x in loaded) or "ninguno"
+        lm = ", ".join(f"{x['name']} (VRAM sin datos)" if x.get("size_vram") is None else
+                       f"{x['name']} ({x['size_vram'] / GiB:.1f} GiB VRAM)" for x in loaded) or "ninguno"
         text = (f"**GPU** {g['name']} (nvidia-smi, ahora):\n- VRAM: {g['used_mib']:.0f} / {g['total_mib']:.0f} MiB "
                 f"({100 * g['used_mib'] / g['total_mib']:.0f} %)\n- Utilización: {g['util']:.0f} %\n"
                 f"- Temperatura: {'no disponible' if g['temp_c'] is None else f'{g['temp_c']:.0f} °C'}\n"
-                f"- Modelos Ollama cargados: {lm}")
+                f"- Modelos {self.s.ollama.name} cargados: {lm}")
         return text, {"gpu": g, "ollama_loaded": loaded}, [Source(kind="metric", title="nvidia-smi + Ollama /api/ps", privacy=Privacy.INTERNAL)]
 
     async def gpu_history(self, q: str):
@@ -155,11 +156,19 @@ class ObservabilityAnswerer:
         return text, {"util": su, "mem": sm, "coverage": cov}, [Source(kind="metric", title="alice_gpu_* vía Prometheus", location=label, privacy=Privacy.INTERNAL)]
 
     async def ollama_models(self):
+        label = "LM Studio" if self.s.ollama.name == "lmstudio" else "Ollama"
         try:
             loaded = await self.s.ollama.running()
             tags = await self.s.ollama.tags()
         except Exception as e:  # noqa: BLE001
-            return f"Ollama no responde ({type(e).__name__}).", {}, []
+            return f"{label} no responde ({type(e).__name__}).", {}, []
+        if self.s.ollama.name == "lmstudio":
+            names = ", ".join(dict.fromkeys(x["name"] for x in loaded)) or "ninguno"
+            text = (f"**Modelos cargados en LM Studio**: {names}.\n\n"
+                    f"Disponibles: {', '.join(t['name'] for t in tags)}.\n\n"
+                    "La API de LM Studio no informa la VRAM utilizada por cada modelo.")
+            return text, {"loaded": loaded, "installed": [t["name"] for t in tags]}, [
+                Source(kind="metric", title="LM Studio /api/v1/models", privacy=Privacy.INTERNAL)]
         lm = "\n".join(f"- {x['name']}: {x.get('size_vram', 0) / GiB:.1f} GiB en VRAM de {x.get('size', 0) / GiB:.1f} GiB "
                        f"({'100 % GPU' if x.get('size_vram') == x.get('size') else 'parcialmente en CPU'}), expira {x.get('expires_at', '')[:19]}"
                        for x in loaded) or "- Ningún modelo cargado ahora (se cargan al recibir una consulta)."
@@ -175,7 +184,7 @@ class ObservabilityAnswerer:
         rows = con.execute("SELECT provider, COUNT(*) n FROM requests WHERE started_at>=? AND status='ok' GROUP BY provider",
                            (self._today_utc(),)).fetchall()
         by = {r["provider"] or "ninguno": r["n"] for r in rows}
-        local = sum(n for p, n in by.items() if p in ("ollama", "local-tools", "ninguno"))
+        local = sum(n for p, n in by.items() if p in ("ollama", "lmstudio", "local-tools", "ninguno"))
         cloud = sum(n for p, n in by.items() if p in ("openrouter", "tavily"))
         spent = self.s.ledger.spent_today()
         text = (f"**Hoy** (desde las 00:00 {self.s.settings.alice_timezone}; registro local de Alice):\n"
@@ -197,6 +206,10 @@ class ObservabilityAnswerer:
         return text, {"request": dict(r)}, [Source(kind="log", title="SQLite requests", privacy=Privacy.INTERNAL)]
 
     async def containers(self, q: str):
+        if not self.s.settings.docker_enabled:
+            return ("El control de contenedores desde Alice está deshabilitado en este perfil. "
+                    "Consulta los servicios desde el host con docker compose ps.",
+                    {"docker": {"state": "disabled"}}, [])
         d = self.s.docker
         st = d.status()
         if st["state"] != "healthy":

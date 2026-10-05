@@ -257,6 +257,16 @@ ALTER TABLE messages ADD COLUMN sources_json TEXT NOT NULL DEFAULT '[]';
 ALTER TABLE messages ADD COLUMN operation_ids_json TEXT NOT NULL DEFAULT '[]';
 """)
 
+MIGRATIONS.append("""
+CREATE TABLE task_reminders (
+ reminder_id INTEGER PRIMARY KEY, owner TEXT NOT NULL,
+ task_id TEXT NOT NULL REFERENCES tasks(task_id) ON DELETE CASCADE,
+ due_date TEXT NOT NULL, due_time TEXT NOT NULL, timezone TEXT NOT NULL,
+ scheduled_at TEXT NOT NULL, fired_at TEXT NOT NULL, read_at TEXT,
+ UNIQUE(owner, task_id, due_date, due_time, timezone));
+CREATE INDEX ix_task_reminders_owner ON task_reminders(owner, read_at, fired_at);
+""")
+
 _lock = threading.RLock()  # compatibility for callers supplying a raw test connection
 
 

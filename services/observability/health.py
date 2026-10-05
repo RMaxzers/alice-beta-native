@@ -29,7 +29,6 @@ class HealthChecker:
         cfg = s.settings
         now = datetime.now(timezone.utc).isoformat()
         probes = {
-            "ollama": _http_ok(f"{cfg.ollama_base_url}/api/version"),
             "qdrant": _http_ok(f"{cfg.qdrant_url}/healthz"),
             "prometheus": _http_ok(f"{cfg.prometheus_url}/-/ready"),
             "grafana": _http_ok(f"{cfg.alice_grafana_local_url}/api/health"),
@@ -39,6 +38,8 @@ class HealthChecker:
         out: dict[str, dict] = {"alice_api": {"state": "healthy", "detail": "respondiendo", "checked_at": now}}
         for k, (ok, detail) in results.items():
             out[k] = {"state": "healthy" if ok else "unavailable", "detail": detail, "checked_at": now}
+        local_health = await s.ollama.health()
+        out[s.ollama.name] = {"state": local_health.state, "detail": local_health.detail, "checked_at": now}
         gpus = await asyncio.to_thread(sample_gpu)
         out["gpu"] = ({"state": "healthy", "detail": f"{gpus[0]['name']} VRAM {gpus[0]['used_mib']:.0f}/{gpus[0]['total_mib']:.0f} MiB", "checked_at": now}
                       if gpus else {"state": "unavailable", "detail": "nvidia-smi sin datos", "checked_at": now})
@@ -49,7 +50,9 @@ class HealthChecker:
         out["openrouter"] = {"state": orh.state, "detail": orh.detail, "checked_at": now}
         out["web"] = {**s.web.state(), "checked_at": now}
         out["hermes"] = {**(await s.hermes.state()), "checked_at": now}
-        out["docker"] = {**(await asyncio.to_thread(s.docker.status)), "checked_at": now}
+        docker_state = (await asyncio.to_thread(s.docker.status) if cfg.docker_enabled else
+                        {"state": "disabled", "detail": "Control de Docker desde Alice deshabilitado en este perfil"})
+        out["docker"] = {**docker_state, "checked_at": now}
         out["grafana_external"] = {**s.grafana_ext.state(), "checked_at": now}
         for name, env in (("email", cfg.email_enabled), ("notebooklm", cfg.notebooklm_enabled), ("loki", cfg.loki_enabled)):
             out[name] = {"state": "disabled" if not env else "not_configured", "detail": "Integración opcional fuera del núcleo Beta 0.1", "checked_at": now}

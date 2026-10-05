@@ -1,0 +1,109 @@
+name: alice-home
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  alice:
+    build:
+      context: ../..
+      dockerfile: infra/home/Dockerfile
+    image: alice-home:local
+    restart: unless-stopped
+    init: true
+    # Linux host networking keeps LM Studio, Qdrant and metrics on VM loopback.
+    network_mode: host
+    env_file: .env
+    environment:
+      ALICE_HOST: "0.0.0.0"
+      ALICE_PORT: "8000"
+      ALICE_METRICS_PORT: "9101"
+      ALICE_LOCAL_PROVIDER: lmstudio
+      LMSTUDIO_BASE_URL: http://127.0.0.1:1234
+      ALICE_MODEL_ALIASES: config/models/aliases.lmstudio.yaml
+      QDRANT_URL: http://127.0.0.1:6333
+      QDRANT_COLLECTION: alice_home_nomic_768
+      ALICE_LOCAL_ONLY: "true"
+      ALICE_REMINDERS_ENABLED: "true"
+      ALICE_CLOUD_ENABLED: "false"
+      MEMORY_ENABLED: "false"
+      VOICE_ENABLED: "false"
+      DOCKER_ENABLED: "false"
+      DATA_DIR: /app/data
+      STORAGE_DIR: /app/storage
+      LOGS_DIR: /app/logs
+      ALICE_FILE_ROOT: /app/work
+      ALICE_EXECUTOR_NAME: ALICE-Ubuntu
+      ALICE_CLI_CONFIG_HOME: /app/storage/cli
+    user: "${PUID:-1000}:${PGID:-1000}"
+    volumes:
+      - ${ALICE_HOME_DATA:-./state}/data:/app/data
+      - ${ALICE_HOME_DATA:-./state}/storage:/app/storage
+      - ${ALICE_HOME_DATA:-./state}/logs:/app/logs
+      - ${ALICE_HOME_DATA:-./state}/work:/app/work
+    depends_on:
+      qdrant:
+        condition: service_started
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      start_period: 90s
+      retries: 3
+    mem_limit: 1536m
+    cpus: 2.0
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    logging: *logging
+
+  qdrant:
+    image: qdrant/qdrant:v1.19.1
+    restart: unless-stopped
+    ports: ["127.0.0.1:6333:6333"]
+    volumes: [qdrant-data:/qdrant/storage]
+    environment:
+      QDRANT__TELEMETRY_DISABLED: "true"
+    mem_limit: 768m
+    cpus: 1.0
+    security_opt: [no-new-privileges:true]
+    logging: *logging
+
+  homepage:
+    image: ghcr.io/gethomepage/homepage@sha256:643bd0be730d40f69d58028a55d1a896739333e8815786df42bc97f109ecbe61
+    restart: unless-stopped
+    ports: ["3000:3000"]
+    environment:
+      TZ: America/Santiago
+      PUID: "${PUID:-1000}"
+      PGID: "${PGID:-1000}"
+      HOMEPAGE_ALLOWED_HOSTS: "${HOMEPAGE_ALLOWED_HOSTS:-127.0.0.1:8331,localhost:8331,127.0.0.1:3000,localhost:3000}"
+      HOMEPAGE_VAR_ALICE_URL: "${ALICE_BROWSER_URL:-http://127.0.0.1:8330}"
+    volumes:
+      - ${ALICE_HOME_DATA:-./state}/homepage:/app/config
+    mem_limit: 384m
+    cpus: 0.5
+    logging: *logging
+
+  pihole:
+    profiles: [dns]
+    image: pihole/pihole@sha256:5b9c8cf51de7d6d3f2240dbe72baf5f06e1fd39cb4d77a99fab4fa13e23bd1be
+    restart: unless-stopped
+    ports:
+      - "${DNS_BIND_ADDR:-127.0.0.1}:53:53/tcp"
+      - "${DNS_BIND_ADDR:-127.0.0.1}:53:53/udp"
+      - "8080:80/tcp"
+    environment:
+      TZ: America/Santiago
+      FTLCONF_webserver_api_password: "${PIHOLE_PASSWORD:?Ejecuta prepare-home.py primero}"
+      FTLCONF_dns_listeningMode: ALL
+    volumes: [pihole-data:/etc/pihole]
+    mem_limit: 384m
+    cpus: 0.5
+    logging: *logging
+
+volumes:
+  qdrant-data:
+  pihole-data:

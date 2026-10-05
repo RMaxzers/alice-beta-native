@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
 import yaml
 from pydantic import SecretStr
@@ -28,6 +29,11 @@ class Settings(BaseSettings):
     alice_local_only: bool = False
 
     ollama_base_url: str = "http://127.0.0.1:11434"
+    alice_local_provider: Literal["ollama", "lmstudio"] = "ollama"
+    lmstudio_base_url: str = "http://127.0.0.1:1234"
+    lmstudio_api_token: SecretStr = SecretStr("")
+    alice_model_aliases: str = "config/models/aliases.yaml"
+    alice_reminders_enabled: bool = False
 
     alice_cloud_enabled: bool = True
     openrouter_api_key: SecretStr = SecretStr("")
