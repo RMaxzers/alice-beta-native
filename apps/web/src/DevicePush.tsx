@@ -38,7 +38,7 @@ export function DevicePush() {
           </p>
         </div>
         {!block && on != null && cfg && (
-          <button type="button" role="switch" aria-checked={on} aria-labelledby="dp-title" className={`switch${on ? " is-on" : ""}`} disabled={busy} onClick={toggle}>
+          <button type="button" role="switch" aria-checked={on} aria-label="Notificaciones en este dispositivo" className={`switch${on ? " is-on" : ""}`} disabled={busy} onClick={toggle}>
             <span className="switch-knob" aria-hidden="true" /><span className="switch-text">{busy ? "…" : on ? "Sí" : "No"}</span>
           </button>
         )}

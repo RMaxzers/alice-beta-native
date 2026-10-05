@@ -22,6 +22,20 @@ type PatchResp = { task: Task; event_id: number; next?: Task | null };
 type Notice = { msg: string; eventId: number | null };
 
 const isOpen = (t: Task) => t.status !== "done" && t.status !== "cancelled";
+// The worker materializes a week of each series; future lists show only its next occurrence (+N later).
+type Shown = Task & { later?: number };
+function firstOfSeries(ts: Task[]): Shown[] {
+  const seen = new Map<string, Shown>();
+  const out: Shown[] = [];
+  for (const t of ts) {
+    const k = t.series_id;
+    if (!k) { out.push(t); continue; }
+    const first = seen.get(k);
+    if (first) { first.later = (first.later ?? 0) + 1; continue; }
+    const c: Shown = { ...t, later: 0 }; seen.set(k, c); out.push(c);
+  }
+  return out;
+}
 const SOON_MS = 60 * 60 * 1000;
 
 // Older backends have no /api/summary/daily: derive the same shape from /api/today so the page still works.
@@ -182,7 +196,7 @@ export function Today({ focus, onFocusHandled }: { focus?: Focus | null; onFocus
       {err && <p className="error" role="alert">{err}</p>}
 
       {data && summary && <DayCard summary={summary} data={data} pending={pending} findTask={findTask}
-        snoozed={(inbox?.items ?? []).filter((r) => !r.read_at && r.snoozed_until)}
+        snoozed={(inbox?.items ?? []).filter((r) => r.snoozed_until)} // snooze also sets read_at (contract v2)
         busy={busyIds} onDone={(t) => toggleDone(t, true)} onSnoozed={remindersChanged} />}
 
       <QuickCreate onCreate={createTask} busy={creating} />
@@ -190,7 +204,7 @@ export function Today({ focus, onFocusHandled }: { focus?: Focus | null; onFocus
       {!data ? !err && <p className="muted">Cargando…</p> : <>
         <Section id="sec-overdue" title="Vencidas" tasks={data.overdue} emptyText="Nada vencido." {...rows} />
         <Section id="sec-today" title="Hoy" tasks={data.today} emptyText="Nada más para hoy." {...rows} />
-        <Section id="sec-upcoming" title="Próximas" tasks={data.upcoming} emptyText="Nada en los próximos 7 días." {...rows} />
+        <Section id="sec-upcoming" title="Próximas" tasks={firstOfSeries(data.upcoming)} emptyText="Nada en los próximos 7 días." {...rows} />
         <Section id="sec-undated" title="Sin fecha" tasks={data.undated} emptyText="Sin tareas sin fecha." collapsible {...rows} />
         <Section id="sec-drafts" title="Borradores" tasks={data.drafts} emptyText="Sin borradores." collapsible {...rows} />
 
@@ -259,7 +273,7 @@ function DayCard({ summary, data, pending, snoozed, findTask, busy, onDone, onSn
   const ringing = pending[0] ?? null;
   const next = (ringing && findTask(ringing.task_id)) || (summary.next && findTask(summary.next.task_id)) || summary.next;
   const why = ringing ? "Aviso sonando ahora" : next?.due_date ? fmtWhen(next) : "Sin fecha";
-  const coming = summary.upcoming.slice(0, 3);
+  const coming = firstOfSeries(summary.upcoming).slice(0, 3);
   const jump = (id: string) => { const el = document.getElementById(id); el?.scrollIntoView({ block: "start" }); el?.focus({ preventScroll: true }); };
 
   return (
@@ -487,6 +501,7 @@ function TaskRow({ task, disabledIds, highlight, reminder, canMoveUp, canMoveDow
             <div className="task-meta">
               {task.due_date && <span className="when">{fmtWhen(task)}</span>}
               {rec && <span className="badge badge-rec" title="Tarea recurrente">↻ {describeRecurrence(rec, task.due_date)}</span>}
+              {(task as Shown).later ? <span className="muted">+{(task as Shown).later} más esta semana</span> : null}
               {task.priority <= 2 && <span className="badge">{PRIORITY_LABEL[task.priority]}</span>}
               <span className="badge">{KIND_LABEL[task.kind]}</span>
               <PrivBadge p={task.privacy} />
