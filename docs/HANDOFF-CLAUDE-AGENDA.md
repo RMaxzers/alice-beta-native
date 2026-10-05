@@ -1,5 +1,9 @@
 # Handoff · Alice Agenda v2 · Codex → Claude
 
+## Seguimiento R-20 (2026-10-05)
+
+Commit adicional `fix(push): print container-visible VAPID path`: el generador acepta `--container-path` (por defecto `/app/storage/secrets/webpush-vapid.pem`), sigue creando la clave en `--state` del host y ahora imprime la ruta correcta para `ALICE_PUSH_PRIVATE_KEY`; la ubicación física del host aparece como nota de respaldo. `docs/AGENDA-PUSH.md` documenta ambos caminos. Validado con `py_compile` y 70 pruebas de push, agenda y seguridad API. Sin despliegue en VM.
+
 ## Estado y checkout
 
 Contrato v2 publicado y aceptado por Claude antes de implementar en `C:/Users/cuent/alice-coordination/API_CONTRACT.md`; copia utilizable por la UI en `docs/AGENDA-API.md`. R-13..R-19 están cubiertos. `CLAUDE_STATUS.md` registra UI-10 como `076b8e5`, conserva `apps/web/**`, service worker y manifest para Claude. `GET /api/tasks/{id}` devuelve el Task plano. API implementada en `apps/api/routes_agenda.py`; `POST /api/tasks`/`PATCH` existentes llevan recurrencia aditiva.

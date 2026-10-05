@@ -6,14 +6,14 @@ Entra por la URL HTTPS privada de Tailscale. La ruta LAN `http://192.168.1.14:80
 
 Push está desactivado hasta que el usuario active el opt-in. Alice guarda suscripciones en SQLite, una por dispositivo; cada solicitud se autentica con la cookie existente y las bajas requieren `X-CSRF-Token`. FCM/Google, Mozilla, Apple y Microsoft Edge reciben los avisos con protocolo Web Push cifrado y VAPID. Los proveedores conocen el endpoint de entrega, pero el payload solo incluye `Tienes un recordatorio pendiente` y una URL/IDs opacos: no se envían títulos ni descripciones privadas. Alice funciona como proveedor Web Push directo sin un SaaS ni cuenta de desarrollador Apple. Requiere tráfico saliente HTTPS desde Ubuntu a los servicios Push y que el proveedor de push no esté bloqueado en el dispositivo.
 
-Como `eva2`, después de entrar al checkout actualizado, genera una pareja una sola vez:
+Como `eva2`, después de entrar al checkout actualizado, genera una pareja una sola vez. La opción `--state` indica el directorio de datos del host; `--container-path` indica la ruta que el proceso Alice verá en el contenedor:
 
 ```bash
 cd ~/alice-home
-python3 scripts/linux/generate-push-keys.py
+python3 scripts/linux/generate-push-keys.py --state ~/alice-home-state/storage --container-path /app/storage/secrets/webpush-vapid.pem
 ```
 
-El script crea `~/alice-home-state/storage/secrets/webpush-vapid.pem` con modo 600, preserva una clave existente y solo imprime la ruta privada y su clave pública. Añade **solo** esas líneas al `.env` privado de `infra/home/.env` (no a Git):
+El script crea `~/alice-home-state/storage/secrets/webpush-vapid.pem` con modo 600, preserva una clave existente y muestra la configuración con la ruta dentro del contenedor, además de una nota con la ubicación host para respaldo. Añade **solo** las líneas de configuración al `.env` privado de `infra/home/.env` (no a Git):
 
 ```dotenv
 ALICE_PUSH_ENABLED=true

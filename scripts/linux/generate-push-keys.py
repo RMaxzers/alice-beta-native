@@ -13,6 +13,8 @@ from cryptography.hazmat.primitives.asymmetric import ec
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--state', type=Path, default=Path.home() / 'alice-home-state' / 'storage')
+    parser.add_argument('--container-path', default='/app/storage/secrets/webpush-vapid.pem',
+                        help='ruta de la clave dentro del contenedor Alice')
     args = parser.parse_args()
     if os.name != 'posix' or os.geteuid() == 0:
         raise SystemExit('Ejecuta como usuario eva2, sin sudo, en Ubuntu.')
@@ -33,7 +35,8 @@ def main():
                                             serialization.PublicFormat.UncompressedPoint)
     encoded = base64.urlsafe_b64encode(public).decode().rstrip('=')
     print(f'Clave privada protegida creada: {path} (modo 600)')
-    print(f'ALICE_PUSH_ENABLED=true\nALICE_PUSH_PRIVATE_KEY={path}\nALICE_PUSH_PUBLIC_KEY={encoded}')
+    print(f'ALICE_PUSH_ENABLED=true\nALICE_PUSH_PRIVATE_KEY={args.container_path}\nALICE_PUSH_PUBLIC_KEY={encoded}')
+    print(f'Archivo de clave en el host (respaldo protegido): {path}')
     print('ALICE_PUSH_SUBJECT=https://eva01.tail3f8e85.ts.net:8444/')
     print('La clave pública no es secreta. Registra subscriptions después del reinicio.')
 
