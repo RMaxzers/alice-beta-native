@@ -455,3 +455,106 @@ progress { width: 140px; height: 6px; accent-color: var(--accent); }
 @media (prefers-reduced-motion: reduce) {
   .orb, .voice-dock, .voice-dock.is-leaving { animation: none; transition: none; }
 }
+
+/* ---------------------------------------------------------------- stage 2: day card, recurrence, snooze, device push */
+.orb-slate { --orb-rgb: 107 102 140; }
+.ok-text { color: var(--ok); margin: 6px 0 0; }
+.hint { margin: 6px 0 0; color: var(--text); }
+.eyebrow { margin: 0 0 4px; font-size: .78rem; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--text-muted); }
+
+.day { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 24px; align-items: center; }
+.day-body h2 { font-size: 1.35rem; margin: 0 0 4px; overflow-wrap: anywhere; }
+.day-body > p { margin: 0 0 12px; }
+.day-actions { display: flex; flex-wrap: wrap; gap: 8px 10px; align-items: center; margin-bottom: 14px; }
+.day-actions > .primary { min-width: 9rem; }
+.day-orb .orb { transition: box-shadow .8s var(--ease-out); }
+/* discrete orb states: halo strength + a slow breathing ring only while something is overdue */
+.day-clear .orb { box-shadow: 0 0 28px rgb(var(--orb-rgb) / .18); }
+.day-soon .orb { box-shadow: 0 0 46px rgb(var(--orb-rgb) / .38); }
+.day-overdue .orb { box-shadow: 0 0 56px rgb(var(--orb-rgb) / .45); }
+.day-overdue .orb::after {
+  content: ""; position: absolute; inset: -6px; border-radius: 50%; border: 2px solid rgb(var(--orb-rgb) / .55);
+  animation: orb-breathe 3.2s ease-in-out infinite; pointer-events: none;
+}
+@keyframes orb-breathe { 0%, 100% { transform: scale(.97); opacity: .25; } 50% { transform: scale(1.04); opacity: .8; } }
+.day-soon .eyebrow { color: var(--accent); }
+.day-overdue .eyebrow { color: var(--danger); }
+.day-counts { list-style: none; display: flex; flex-wrap: wrap; gap: 8px; margin: 0; padding: 0; }
+.chip { border-radius: var(--radius-pill); padding: 4px 12px; font-size: .84rem; background: var(--bg-elev-2); border-color: var(--line); }
+.chip b { font-variant-numeric: tabular-nums; margin-right: 4px; }
+.day-coming { margin-top: 14px; }
+.day-coming h3 { font-size: .84rem; color: var(--text-muted); margin-bottom: 6px; }
+.day-coming ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.when { font-variant-numeric: tabular-nums; color: var(--text-muted); white-space: nowrap; }
+.day-coming .when { display: inline-block; min-width: 8.5rem; }
+
+.create { display: grid; gap: 8px; justify-items: start; }
+.create-main { display: flex; gap: 10px; width: 100%; }
+.create-main .qc-title { flex: 1 1 auto; min-width: 0; }
+.create > div:not(.create-main) { width: 100%; }
+.fields { display: grid; gap: 10px; margin-top: 4px; width: 100%; }
+.field-row { display: flex; flex-wrap: wrap; gap: 10px 14px; }
+.field { display: grid; gap: 4px; font-size: .84rem; color: var(--text-muted); }
+.field input, .field select { color: var(--text); }
+.weekdays { display: flex; flex-wrap: wrap; gap: 6px; border: 0; margin: 0; padding: 0; }
+.weekdays legend { font-size: .84rem; color: var(--text-muted); margin-bottom: 4px; padding: 0; }
+.day-toggle { width: 40px; height: 40px; padding: 0; border-radius: 50%; font-weight: 600; }
+.day-toggle.is-on { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+.day-toggle.is-on:hover:not(:disabled) { background: var(--accent); color: var(--accent-ink); }
+.rec-preview { margin: 0; padding: 8px 12px; border-radius: var(--radius-s); background: var(--accent-soft); color: var(--text); }
+.more > summary, .fold > summary { cursor: pointer; list-style: none; }
+.more > summary { font-size: .84rem; color: var(--text-muted); width: fit-content; padding: 4px 0; }
+.more > summary::before, .fold > summary h2::before { content: "▸ "; display: inline-block; transition: transform var(--dur-quick); }
+.more[open] > summary::before, .fold[open] > summary h2::before { transform: rotate(90deg); }
+.fold > summary h2 { margin: 0; display: inline; }
+.fold[open] > summary { margin-bottom: 10px; }
+.fold > summary::-webkit-details-marker, .more > summary::-webkit-details-marker { display: none; }
+
+.badge-rec { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 40%, transparent); }
+.rec-next { margin: 2px 0 0; color: var(--text); }
+.task-row.is-focused { background: var(--accent-soft); border-radius: var(--radius-s); box-shadow: 0 0 0 2px var(--accent); padding-inline: 10px; }
+.task-row:focus { outline: none; }
+.task-row:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.task-actions .reorder { gap: 2px; }
+.stop-series { display: grid; gap: 6px; padding: 8px 0; }
+.stop-series p { margin: 0; }
+
+.snooze { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; }
+.snooze.is-compact { margin: 6px 0; }
+.snooze-custom { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.snooze .error { flex-basis: 100%; margin: 0; }
+
+.device-push h2 { font-size: 1rem; margin: 0 0 2px; }
+.device-push p { margin: 0; }
+.device-push-row { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
+.switch { position: relative; display: inline-flex; align-items: center; gap: 8px; min-width: 76px; padding: 4px 12px 4px 4px; border-radius: var(--radius-pill); }
+.switch-knob { width: 26px; height: 26px; border-radius: 50%; background: var(--line-strong); transition: background var(--dur-quick); }
+.switch.is-on { background: var(--accent-soft); border-color: var(--accent); }
+.switch.is-on .switch-knob { background: var(--accent); }
+.voice-state { margin: 14px 0 -4px; font-size: .9rem; color: var(--text-muted); }
+.voice-recording, .voice-speaking { color: var(--accent); }
+.voice-off { color: var(--text-muted); }
+
+@media (prefers-reduced-motion: reduce) {
+  .day-overdue .orb::after { animation: none; opacity: .6; }
+}
+@media (forced-colors: active) {
+  .day-toggle.is-on, .switch.is-on { outline: 2px solid Highlight; }
+  .task-row.is-focused { outline: 2px solid Highlight; }
+}
+@media (max-width: 760px) {
+  .day { grid-template-columns: 1fr; justify-items: center; text-align: center; gap: 14px; }
+  .day-actions, .day-counts { justify-content: center; }
+  .day-coming { text-align: left; width: 100%; }
+  .day-coming .when { display: block; min-width: 0; font-size: .8rem; }
+  .day-actions > .primary { flex: 1 1 100%; }
+  /* WCAG 2.5.5: comfortable touch targets in Hoy */
+  .today button, .today .button, .today input, .today select, .reminder-panel button, .reminder-panel .button { min-height: 44px; }
+  .today .task-row > input[type="checkbox"] { width: 26px; height: 26px; min-height: 0; }
+  .day-toggle { width: 44px; height: 44px; }
+  .create-main { flex-direction: column; }
+  .create-main .primary { width: 100%; }
+  .task-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+  .task-actions .reorder { margin-left: auto; }
+  .snooze-custom input { flex: 1 1 100%; }
+}

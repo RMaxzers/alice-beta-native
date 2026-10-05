@@ -73,6 +73,13 @@ const today = [
   task("Investigar timeouts de embeddings", { due_date: day(0), kind: "work", origin: "evidence", privacy: "PRIVATE",
     sources: [{ kind: "log", title: "ingestion-laboratorio-demo.log", location: "línea 4", excerpt: "ERROR timeout al generar embeddings", privacy: "PRIVATE" }] }),
 ];
+// Stage 2 (contract v2): a weekly series occurrence and a daily one with a ringing reminder.
+today.push(task("Tomar la medicación", { due_date: day(0), due_time: "10:00", due_at: new Date(NOW.getTime() - 30 * 60_000).toISOString(),
+  series_id: "s-demo-med", recurrence: { freq: "daily", interval: 1, until: null }, next_due: { due_date: day(1), due_time: "10:00" } }));
+today.push(task("Revisar agenda semanal", { due_date: day(0), due_time: "11:00", due_at: new Date(NOW.getTime() + 30 * 60_000).toISOString(), priority: 2,
+  series_id: "s-demo-weekly", recurrence: { freq: "weekly", interval: 1, weekdays: [1, 3], until: day(60) }, next_due: { due_date: day(2), due_time: "11:00" } }));
+const reminders = [{ reminder_id: 42, task_id: today[3].task_id, title: today[3].title, due_date: day(0), due_time: "10:00", timezone: "America/Santiago",
+  scheduled_at: new Date(NOW.getTime() - 30 * 60_000).toISOString(), fired_at: iso(30), read_at: null as string | null, snoozed_until: null as string | null, generation: 0 }];
 const upcoming = [task("Inventariar switches de Planta 1", { due_date: day(3), kind: "work" }), task("Comprar cable de consola", { due_date: day(5), priority: 4 })];
 const undated = [task("Leer sobre VLAN privadas", { priority: 4 })];
 const drafts = [task("Documentar rango de infraestructura", { status: "draft", origin: "chat" })];
@@ -201,6 +208,19 @@ const routes: Record<string, (q: URLSearchParams, body: any) => unknown> = {
   "POST /api/memory/toggle": () => ({ ok: true }),
   "GET /api/voice/status": () => ({ enabled: true, tts: { reachable: true }, stt: { model: "whisper-small", device: "cuda", loaded: false } }),
   "POST /api/tasks/reorder": () => ({ ok: true, event_id: 1 }),
+  "GET /api/reminders": () => {
+    const live = state.mode === "empty" ? [] : reminders;
+    const unread = live.filter((r) => !r.read_at && !(r.snoozed_until && Date.parse(r.snoozed_until) > Date.now())).length;
+    return { enabled: true, unread, items: live };
+  },
+  "GET /api/summary/daily": () => {
+    const empty = state.mode === "empty";
+    const open = (xs: any[]) => (empty ? [] : xs.filter((t) => t.status !== "done"));
+    return { date: day(0), timezone: "America/Santiago", counts: { pending: open(today).length, overdue: open(overdue).length, upcoming: open(upcoming).length },
+      next: empty ? null : overdue[0], overdue: open(overdue).slice(0, 5), today: open(today).slice(0, 5), upcoming: open(upcoming).slice(0, 5), generated_at: iso() };
+  },
+  "GET /api/push/config": () => ({ enabled: false, vapid_public_key: null, reason: "Demo sin claves VAPID" }),
+  "GET /api/push/subscriptions": () => ({ items: [] }),
   "GET /api/identity": () => {
     if (!state.contract) throw [404, "Not Found"];
     return { backend_id: "demo-backend", executor_name: "PC-DEMO", api_contract: "1", file_action: { enabled: true, root_label: "Mi carpeta de Alice" } };
@@ -414,7 +434,25 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
   if (method === "POST" && path === "/api/voice/stt") return send(res, 200, { text: "¿Qué VLAN usa la red de invitados?" });
   if (method === "POST" && path === "/api/voice/tts") return send(res, 200, silentWav(), "audio/wav");
   if (method === "POST" && path === "/api/tasks") return send(res, 201, { task: task(body?.title ?? "Nueva tarea", body ?? {}), event_id: 9 });
-  if (method === "PATCH" && path.startsWith("/api/tasks/")) return send(res, 200, { task: task("Actualizada", { ...body, task_id: path.split("/").pop() }), event_id: 10 });
+  if (method === "PATCH" && path.startsWith("/api/tasks/")) {
+    const id = path.split("/").pop()!, cur = [...overdue, ...today, ...upcoming, ...undated, ...drafts].find((t) => t.task_id === id) as any;
+    if (cur && body?.recurrence && cur.recurrence) return send(res, 409, { detail: "La regla de una serie no se puede cambiar" });
+    if (cur) Object.assign(cur, body, { version: cur.version + 1 });
+    const next = cur?.recurrence && body?.status === "done" ? task(cur.title, { ...cur, task_id: `${id}-next`, status: "open", ...cur.next_due }) : undefined;
+    return send(res, 200, { task: cur ?? task("Actualizada", { ...body, task_id: id }), event_id: 10, ...(cur?.recurrence ? { next: next ?? null } : {}) });
+  }
+  const snooze = path.match(/^\/api\/reminders\/(\d+)\/snooze$/);
+  if (method === "POST" && snooze) {
+    const r = reminders.find((x) => x.reminder_id === Number(snooze[1]));
+    if (!r) return send(res, 404, { detail: "Aviso no encontrado" });
+    const until = body?.minutes ? new Date(Date.now() + body.minutes * 60_000).toISOString() : body?.until;
+    if (!until || Date.parse(until) <= Date.now()) return send(res, 422, { detail: "Fecha pasada" });
+    Object.assign(r, { snoozed_until: until, generation: r.generation + 1 });
+    return send(res, 200, { ...r, history: [] });
+  }
+  const ack = path.match(/^\/api\/reminders\/(\d+)\/ack$/);
+  if (method === "POST" && ack) { const r = reminders.find((x) => x.reminder_id === Number(ack[1])); if (r) r.read_at = new Date().toISOString(); return send(res, 200, { ok: true }); }
+  if (method === "POST" && /^\/api\/series\/[^/]+\/stop$/.test(path)) return send(res, 200, { ok: true });
   if (method === "POST" && /^\/api\/(events\/\d+\/undo|egress\/.+\/approve|documents\/.+\/cancel)$/.test(path)) return send(res, 200, { ok: true });
   if (method === "DELETE") return send(res, 200, { ok: true });
 

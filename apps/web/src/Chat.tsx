@@ -163,7 +163,8 @@ export function Chat({ setLogo }: { setLogo: (s: LogoState) => void }) {
   }
 
   function newConversation() { setMsgs([]); setConvId(null); setLogo("idle"); }
-  useEffect(() => { fetchVoiceStatus().then(setVoiceStatus).catch(() => setVoiceStatus(null)); }, []);
+  const [voiceErr, setVoiceErr] = useState(false);
+  useEffect(() => { fetchVoiceStatus().then(setVoiceStatus).catch(() => setVoiceErr(true)); }, []);
   useEffect(() => { endRef.current?.scrollIntoView({ block: "end" }); }, [msgs]);
   useEffect(() => () => { playingRef.current?.audio.pause(); recorderRef.current?.stream.getTracks().forEach((t) => t.stop()); meterRef.current?.close(); }, []);
 
@@ -240,11 +241,20 @@ export function Chat({ setLogo }: { setLogo: (s: LogoState) => void }) {
     }
   }
 
-  // Voice orb: cyan while Alice hears or speaks (reacting to the live level), violet while she thinks.
+  // Voice orb follows real availability (/api/voice/status + browser mic support):
+  // slate = off/unavailable, violet = ready or thinking, cyan = hearing/speaking (reacting to the live level).
   const speaking = Object.values(listen).some((l) => l.status === "playing");
   const voiceActive = micStatus !== "idle" || speaking;
-  const orbTint = micStatus === "recording" || speaking ? "cyan" : "violet";
-  const orbEnergy = micStatus === "recording" ? 0.8 : micStatus === "transcribing" ? 0.7 : speaking ? 0.5 : busy ? 0.45 : 0.15;
+  const voiceOff = voiceErr || voiceStatus?.enabled === false || !micSupported;
+  const voiceState = voiceOff ? "off" : !voiceStatus ? "checking" : micStatus === "recording" ? "recording"
+    : micStatus === "transcribing" ? "transcribing" : speaking ? "speaking" : "ready";
+  const VOICE_TEXT: Record<typeof voiceState, string> = {
+    off: voiceErr ? "No pude comprobar la voz." : !micSupported ? "La voz necesita https o 127.0.0.1." : "Voz desactivada en este servidor.",
+    checking: "Comprobando la voz…", ready: "Toca el orbe para hablar.", recording: "Te escucho. Toca para terminar.",
+    transcribing: "Transcribiendo…", speaking: "Alice está hablando.",
+  };
+  const orbTint = voiceState === "off" ? "slate" : micStatus === "recording" || speaking ? "cyan" : "violet";
+  const orbEnergy = voiceState === "off" ? 0.04 : micStatus === "recording" ? 0.8 : micStatus === "transcribing" ? 0.7 : speaking ? 0.5 : busy ? 0.45 : 0.15;
   // Keep the floating orb mounted briefly after voice ends so it can fade out.
   const [dock, setDock] = useState(false);
   useEffect(() => {
@@ -252,7 +262,8 @@ export function Chat({ setLogo }: { setLogo: (s: LogoState) => void }) {
     const t = window.setTimeout(() => setDock(false), 450);
     return () => window.clearTimeout(t);
   }, [voiceActive]);
-  const canTalk = voiceStatus?.enabled !== false && micSupported;
+  const canTalk = !voiceOff && !!voiceStatus;
+  const canListen = !voiceErr && voiceStatus?.enabled === true && voiceStatus.tts.reachable;
 
   const patch = (id: string, f: (m: Msg) => Partial<Msg>) => setMsgs((ms) => ms.map((m) => (m.id === id ? { ...m, ...f(m) } : m)));
 
@@ -422,12 +433,13 @@ export function Chat({ setLogo }: { setLogo: (s: LogoState) => void }) {
           <div className="empty">
             <button type="button" className="orb-btn" onClick={toggleMic} disabled={!canTalk || micStatus === "transcribing"}
               aria-pressed={micStatus === "recording"}
-              aria-label={!canTalk ? "Voz no disponible" : micStatus === "recording" ? "Detener grabación" : "Hablar con Alice"}
+              aria-label={!canTalk ? VOICE_TEXT[voiceState] : micStatus === "recording" ? "Detener grabación" : "Hablar con Alice"}
               title={!micSupported ? MIC_UNAVAILABLE : undefined}>
               <Orb size={208} tint={orbTint} energy={orbEnergy} level={voiceLevel}>
                 <Logo size={84} state={micStatus === "transcribing" ? "routing" : "idle"} />
               </Orb>
             </button>
+            <p className={`voice-state voice-${voiceState}`} aria-live="polite">{VOICE_TEXT[voiceState]}</p>
             <h2>¿En qué te ayudo?</h2>
             <p className="muted">Se procesa en este equipo por defecto; nada sale sin tu autorización.</p>
           </div>
@@ -442,7 +454,7 @@ export function Chat({ setLogo }: { setLogo: (s: LogoState) => void }) {
             onCancel={() => { patch(m.id, () => ({ status: "cancelled", consent: undefined })); setLogo("idle"); }}
             onUndoAction={(i) => undoAction(m.id, i)} onCreateSuggestion={(i) => createFromSuggestion(m.id, i)}
             onUndoSuggestion={(i) => undoSuggestion(m.id, i)}
-            listen={listen[m.id] ?? { status: "idle" }} voiceEnabled={voiceStatus?.enabled !== false}
+            listen={listen[m.id] ?? { status: "idle" }} voiceEnabled={canListen}
             onToggleListen={() => toggleListen(m.id, m.content)} />
         ))}
         </div>
@@ -461,7 +473,7 @@ export function Chat({ setLogo }: { setLogo: (s: LogoState) => void }) {
           <textarea value={text} onChange={(e) => setText(e.target.value)} rows={2} maxLength={20000} placeholder="Escribe tu consulta…"
             aria-label="Mensaje" onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }} />
           <div className="composer-bar">
-            {voiceStatus?.enabled !== false && (
+            {canTalk && (
               <button type="button" className={`mic-btn${micStatus === "recording" ? " is-recording" : ""}`}
                 aria-pressed={micStatus === "recording"} disabled={micStatus === "transcribing" || !micSupported}
                 title={!micSupported ? MIC_UNAVAILABLE : micStatus === "recording" ? "Detener grabación" : "Grabar un mensaje de voz"}

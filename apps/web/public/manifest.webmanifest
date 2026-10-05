@@ -1,0 +1,11 @@
+{
+  "name": "Alice",
+  "short_name": "Alice",
+  "lang": "es",
+  "start_url": "/#today",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#05030f",
+  "theme_color": "#05030f",
+  "icons": [{ "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }]
+}

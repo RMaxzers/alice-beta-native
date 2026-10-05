@@ -34,11 +34,21 @@ const Icon = ({ k }: { k: string }) => (
   <svg className="icon" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d={ICON[k]} /></svg>
 );
 type Tab = (typeof TABS)[number][0];
+// Deep link from a notification or a "Ver tarea" link: #today?task=<id>&reminder=<id>&snooze=10
+export type Focus = { task: string; reminder: number | null; snooze: number | null; at: number };
+const parseHash = (h: string): { tab: Tab | null; focus: Focus | null } => {
+  const [k, q = ""] = h.replace(/^#/, "").split("?");
+  const tab = TABS.some(([kk]) => kk === k) ? (k as Tab) : null;
+  const p = new URLSearchParams(q), task = p.get("task");
+  const num = (v: string | null) => (v && /^\d+$/.test(v) ? Number(v) : null);
+  return { tab, focus: task ? { task, reminder: num(p.get("reminder")), snooze: num(p.get("snooze")), at: Date.now() } : null };
+};
 
 
 function App() {
   const [user, setUser] = useState<string | null | undefined>(undefined); // undefined = checking
-  const [tab, setTab] = useState<Tab>(() => (TABS.some(([k]) => "#" + k === location.hash) ? location.hash.slice(1) as Tab : "today"));
+  const [tab, setTab] = useState<Tab>(() => parseHash(location.hash).tab ?? "today");
+  const [focus, setFocus] = useState<Focus | null>(() => parseHash(location.hash).focus);
   const [logo, setLogo] = useState<LogoState>("idle");
   const [localOnly, setLocalOnly] = useState<boolean | null>(null);
 
@@ -49,14 +59,19 @@ function App() {
       .catch(() => setUser(null));
   }, []);
   useEffect(() => { history.replaceState(null, "", "#" + tab); }, [tab]);
-  // Real hash navigation (e.g. a "Ver en Hoy" link in Chat) fires hashchange; follow it.
+  // Real hash navigation (e.g. a "Ver en Hoy" link in Chat, a reminder link) fires hashchange; follow it.
   useEffect(() => {
-    const onHash = () => {
-      const k = location.hash.slice(1);
-      if (TABS.some(([kk]) => kk === k)) setTab(k as Tab);
+    const go = (h: string) => {
+      const r = parseHash(h);
+      if (r.tab) setTab(r.tab);
+      if (r.focus) setFocus(r.focus);
     };
+    const onHash = () => go(location.hash);
+    // The service worker focuses an open window and posts the notification's URL instead of reloading it.
+    const onSw = (e: MessageEvent) => { if (e.data?.type === "alice-open") go(new URL(e.data.url).hash); };
     window.addEventListener("hashchange", onHash);
-    return () => window.removeEventListener("hashchange", onHash);
+    navigator.serviceWorker?.addEventListener("message", onSw);
+    return () => { window.removeEventListener("hashchange", onHash); navigator.serviceWorker?.removeEventListener("message", onSw); };
   }, []);
   // Re-read on tab change so the badge follows a toggle made in Ajustes.
   useEffect(() => {
@@ -100,7 +115,7 @@ function App() {
         ))}
       </nav>
       <main className="content" id="main" tabIndex={-1}>
-        {tab === "today" && <Today />}
+        {tab === "today" && <Today focus={focus} onFocusHandled={() => setFocus(null)} />}
         {tab === "home" && <div className="page"><LiveMap /></div>}
         {/* Chat stays mounted so a conversation or stream survives tab switches. */}
         <div hidden={tab !== "chat"} className="fill"><Chat setLogo={setLogo} /></div>

@@ -5,11 +5,12 @@ import { useEffect, useRef, type ReactNode } from "react";
 // Smoothness: tint, energy and audio level are eased every frame, and the wave phase is integrated (phase += speed·dt),
 // so a state change bends the motion instead of jumping. Decorative: the caller provides the accessible label/control.
 
-export type Tint = "violet" | "cyan" | "copper";
+export type Tint = "violet" | "cyan" | "copper" | "slate";
 const TINT: Record<Tint, [number, number, number]> = {
   violet: [0.62, 0.31, 0.87],  // #9d4edd
   cyan: [0.0, 0.96, 0.83],     // #00f5d4
   copper: [0.94, 0.48, 0.43],  // #f07a6e (--danger)
+  slate: [0.42, 0.40, 0.55],   // muted lavender-grey: "off / unavailable"
 };
 
 const VERT = `attribute vec2 a;varying vec2 v;void main(){v=a*.5+.5;gl_Position=vec4(a,0.,1.);}`;
