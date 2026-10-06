@@ -88,6 +88,7 @@ export function Today({ focus, onFocusHandled }: { focus?: Focus | null; onFocus
   useEffect(() => {
     if (!focus || !data) return;
     onFocusHandled?.();
+    history.replaceState(null, "", "#today"); // a reload must not repeat ?snooze=
     (async () => {
       if (focus.snooze && focus.reminder != null) {
         try { const r = await snoozeReminder(focus.reminder, { minutes: focus.snooze }); remindersChanged(`Pospuesto ${focus.snooze} min · «${r.title}»`); }
