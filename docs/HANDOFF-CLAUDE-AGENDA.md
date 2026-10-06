@@ -1,4 +1,8 @@
-﻿# Handoff · Alice Agenda v2 · Codex → Claude
+# Handoff · Alice Agenda v2 · Codex → Claude
+
+## Seguimiento R-20 (2026-10-05)
+
+Commit adicional `fix(push): print container-visible VAPID path`: el generador acepta `--container-path` (por defecto `/app/storage/secrets/webpush-vapid.pem`), sigue creando la clave en `--state` del host y ahora imprime la ruta correcta para `ALICE_PUSH_PRIVATE_KEY`; la ubicación física del host aparece como nota de respaldo. `docs/AGENDA-PUSH.md` documenta ambos caminos. Validado con `py_compile` y 70 pruebas de push, agenda y seguridad API. Sin despliegue en VM.
 
 ## Estado y checkout
 
