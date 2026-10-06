@@ -54,6 +54,8 @@ export function Today({ focus, onFocusHandled }: { focus?: Focus | null; onFocus
   const [busyIds, setBusyIds] = useState<Set<string>>(new Set());
   const [creating, setCreating] = useState(false);
   const [highlight, setHighlight] = useState<string | null>(null);
+  // After a completion the next item can land under the pointer: a short pause stops double-click cascades.
+  const [cooling, setCooling] = useState(false);
   const noticeTimer = useRef<number | null>(null);
 
   const load = useCallback(async () => {
@@ -172,12 +174,17 @@ export function Today({ focus, onFocusHandled }: { focus?: Focus | null; onFocus
     const next = r.next ?? null;
     return next ? `Hecha esta vez. La siguiente: ${fmtWhen(next)}` : r.next === null ? `Hecha. Era la última de la serie.` : `Hecha esta vez. La serie sigue.`;
   };
-  const toggleDone = (t: Task, done: boolean) => patchTask(t, { status: done ? "done" : "open" }, done ? completeMsg(t) : () => `Reabierta: «${t.title}»`);
+  const toggleDone = (t: Task, done: boolean) => {
+    if (cooling) return;
+    setCooling(true); window.setTimeout(() => setCooling(false), 800);
+    return patchTask(t, { status: done ? "done" : "open" }, done ? completeMsg(t) : () => `Reabierta: «${t.title}»`);
+  };
   const saveEdits = (t: Task, ch: EditPayload) => patchTask(t, ch, () => `Guardada: «${ch.title ?? t.title}»`);
   const activate = (t: Task) => patchTask(t, { status: "open" }, () => `Activada: «${t.title}»`);
 
   const pending = pendingOf(inbox);
-  const rows = { disabledIds: busyIds, highlight, reminders: inbox?.items ?? [], onToggleDone: toggleDone, onSave: saveEdits, onActivate: activate, onReorder: reorder, onSnoozed: remindersChanged, onStopped: remindersChanged };
+  const blocked = cooling ? new Set(all.map((t) => t.task_id)) : busyIds;
+  const rows = { today: data?.date ?? "", disabledIds: blocked, highlight, reminders: inbox?.items ?? [], onToggleDone: toggleDone, onSave: saveEdits, onActivate: activate, onReorder: reorder, onSnoozed: remindersChanged, onStopped: remindersChanged };
 
   return (
     <section className="page today">
@@ -198,7 +205,7 @@ export function Today({ focus, onFocusHandled }: { focus?: Focus | null; onFocus
 
       {data && summary && <DayCard summary={summary} data={data} pending={pending} findTask={findTask}
         snoozed={(inbox?.items ?? []).filter((r) => r.snoozed_until)} // snooze also sets read_at (contract v2)
-        busy={busyIds} onDone={(t) => toggleDone(t, true)} onSnoozed={remindersChanged} />}
+        busy={blocked} onDone={(t) => toggleDone(t, true)} onSnoozed={remindersChanged} />}
 
       <QuickCreate onCreate={createTask} busy={creating} />
 
@@ -293,9 +300,11 @@ function DayCard({ summary, data, pending, snoozed, findTask, busy, onDone, onSn
           : <p className="muted">Buen momento para descansar o adelantar algo.</p>}
         {next && (
           <div className="day-actions">
-            <button className="primary" disabled={busy.has(next.task_id) || !isOpen(next) || next.status === "draft"} onClick={() => onDone(next)}>
-              {next.recurrence ? "Hecha esta vez" : "Hecha"}
-            </button>
+            {next.series_id && next.due_date && next.due_date > data.date
+              ? <p className="muted small-text">Toca el {fmtWhen(next)}. Podrás marcarla ese día.</p>
+              : <button className="primary" disabled={busy.has(next.task_id) || !isOpen(next) || next.status === "draft"} onClick={() => onDone(next)}>
+                  {next.recurrence ? "Hecha esta vez" : "Hecha"}
+                </button>}
             {ringing && <SnoozeControls reminder={ringing} onDone={onSnoozed} />}
           </div>
         )}
@@ -431,7 +440,7 @@ function QuickCreate({ onCreate, busy }: { onCreate: (p: Fields) => Promise<bool
 
 // ------------------------------------------------------------------ sections and rows
 type RowProps = {
-  disabledIds: Set<string>; highlight: string | null; reminders: Reminder[];
+  today: string; disabledIds: Set<string>; highlight: string | null; reminders: Reminder[];
   onToggleDone: (t: Task, done: boolean) => void; onSave: (t: Task, changes: EditPayload) => void; onActivate: (t: Task) => void;
   onReorder: (ids: string[], i: number, dir: -1 | 1) => void; onSnoozed: (msg: string) => void; onStopped: (msg: string) => void;
 };
@@ -455,7 +464,7 @@ function Section({ id, title, tasks, emptyText, collapsible, ...p }: RowProps & 
   return <section id={id} tabIndex={-1} className="card" aria-label={title}>{head}{list}</section>;
 }
 
-function TaskRow({ task, disabledIds, highlight, reminder, canMoveUp, canMoveDown, onToggleDone, onSave, onActivate, onMoveUp, onMoveDown, onSnoozed, onStopped }: RowProps & {
+function TaskRow({ task, today, disabledIds, highlight, reminder, canMoveUp, canMoveDown, onToggleDone, onSave, onActivate, onMoveUp, onMoveDown, onSnoozed, onStopped }: RowProps & {
   task: Task; reminder: Reminder | null; canMoveUp: boolean; canMoveDown: boolean; onMoveUp: () => void; onMoveDown: () => void;
 }) {
   const [editing, setEditing] = useState(false);
@@ -463,6 +472,8 @@ function TaskRow({ task, disabledIds, highlight, reminder, canMoveUp, canMoveDow
   const [err, setErr] = useState("");
   const idp = useId();
   const disabled = disabledIds.has(task.task_id);
+  // A future occurrence of a series is completed on its day, not ahead of time.
+  const ahead = !!task.series_id && !!task.due_date && !!today && task.due_date > today && task.status !== "done";
   const rec = task.recurrence ?? null;
   const done = task.status === "done";
 
@@ -480,7 +491,8 @@ function TaskRow({ task, disabledIds, highlight, reminder, canMoveUp, canMoveDow
 
   return (
     <li id={`task-${task.task_id}`} tabIndex={-1} className={`task-row${highlight === task.task_id ? " is-focused" : ""}`}>
-      <input type="checkbox" checked={done} disabled={disabled || task.status === "draft" || task.status === "cancelled"}
+      <input type="checkbox" checked={done} disabled={disabled || ahead || task.status === "draft" || task.status === "cancelled"}
+        title={ahead ? "Podrás completarla ese día" : undefined}
         onChange={(e) => onToggleDone(task, e.target.checked)} aria-label={checkLabel} />
       <div className="task-main">
         {editing ? (
